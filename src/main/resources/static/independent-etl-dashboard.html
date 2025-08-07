@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>독립적인 ETL 시스템 대시보드</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            margin: 0;
+            font-size: 2.5em;
+            font-weight: 300;
+        }
+        
+        .header p {
+            margin: 10px 0 0 0;
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .status-card {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            border-left: 4px solid #667eea;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+        }
+        
+        .status-card h3 {
+            margin: 0 0 15px 0;
+            color: #667eea;
+            font-size: 1.2em;
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        
+        .status-online {
+            background: #28a745;
+        }
+        
+        .status-offline {
+            background: #dc3545;
+        }
+        
+        .status-warning {
+            background: #ffc107;
+        }
+        
+        .data-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .data-section h3 {
+            margin: 0 0 15px 0;
+            color: #667eea;
+        }
+        
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: white;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        
+        .data-table th,
+        .data-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #dee2e6;
+        }
+        
+        .data-table th {
+            background: #667eea;
+            color: white;
+            font-weight: 500;
+        }
+        
+        .data-table tr:hover {
+            background: #f8f9fa;
+        }
+        
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 500;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background: #5a6fd8;
+            transform: translateY(-2px);
+        }
+        
+        .btn-success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background: #218838;
+            transform: translateY(-2px);
+        }
+        
+        .btn-warning {
+            background: #ffc107;
+            color: #212529;
+        }
+        
+        .btn-warning:hover {
+            background: #e0a800;
+            transform: translateY(-2px);
+        }
+        
+        .statistics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border-top: 4px solid #667eea;
+        }
+        
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            color: #667eea;
+            margin-bottom: 5px;
+        }
+        
+        .stat-label {
+            color: #6c757d;
+            font-size: 0.9em;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #6c757d;
+        }
+        
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .success {
+            background: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 독립적인 ETL 시스템</h1>
+            <p>기존 CDC 시스템과 완전히 분리된 새로운 AGV 데이터 모니터링 시스템</p>
+        </div>
+        
+        <div class="content">
+            <!-- 상태 카드 -->
+            <div class="status-grid">
+                <div class="status-card">
+                    <h3>ETL 엔진 상태</h3>
+                    <div id="etl-status">
+                        <span class="status-indicator status-offline"></span>
+                        <span>확인 중...</span>
+                    </div>
+                </div>
+                
+                <div class="status-card">
+                    <h3>WCS DB 연결</h3>
+                    <div id="wcs-status">
+                        <span class="status-indicator status-offline"></span>
+                        <span>확인 중...</span>
+                    </div>
+                </div>
+                
+                <div class="status-card">
+                    <h3>마지막 실행 시간</h3>
+                    <div id="last-execution">
+                        <span>확인 중...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 통계 -->
+            <div class="data-section">
+                <h3>📊 ETL 통계</h3>
+                <div class="statistics-grid" id="statistics-grid">
+                    <div class="loading">통계 로딩 중...</div>
+                </div>
+            </div>
+            
+            <!-- 제어 버튼 -->
+            <div class="button-group">
+                <button class="btn btn-primary" onclick="refreshStatus()">🔄 상태 새로고침</button>
+                <button class="btn btn-success" onclick="executeETL()">▶️ ETL 실행</button>
+                <button class="btn btn-warning" onclick="reinitializeETL()">🔄 ETL 재초기화</button>
+            </div>
+            
+            <!-- 메시지 영역 -->
+            <div id="message-area"></div>
+            
+            <!-- WCS 데이터 -->
+            <div class="data-section">
+                <h3>📋 WCS DB 데이터 (최신 10개)</h3>
+                <div id="wcs-data">
+                    <div class="loading">데이터 로딩 중...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // API 기본 URL
+        const API_BASE = '/api/etl';
+        
+        // 페이지 로드 시 초기화
+        document.addEventListener('DOMContentLoaded', function() {
+            refreshStatus();
+            loadWcsData();
+        });
+        
+        // 상태 새로고침
+        async function refreshStatus() {
+            try {
+                console.log('상태 조회 시작...');
+                const response = await fetch(`${API_BASE}/status`);
+                console.log('응답 상태:', response.status);
+                
+                const data = await response.json();
+                console.log('받은 데이터:', data);
+                console.log('통계 데이터:', data.statistics);
+                
+                updateETLStatus(data);
+                updateStatistics(data.statistics);
+                
+            } catch (error) {
+                console.error('상태 조회 실패:', error);
+                showMessage('상태 조회 중 오류가 발생했습니다.', 'error');
+            }
+        }
+        
+        // WCS 데이터 로드
+        async function loadWcsData() {
+            try {
+                const response = await fetch(`${API_BASE}/wcs/data/latest`);
+                const data = await response.json();
+                
+                displayWcsData(data);
+                
+            } catch (error) {
+                console.error('WCS 데이터 로드 실패:', error);
+                document.getElementById('wcs-data').innerHTML = 
+                    '<div class="error">WCS 데이터 로드 중 오류가 발생했습니다.</div>';
+            }
+        }
+        
+        // ETL 상태 업데이트
+        function updateETLStatus(data) {
+            const etlStatus = document.getElementById('etl-status');
+            const wcsStatus = document.getElementById('wcs-status');
+            const lastExecution = document.getElementById('last-execution');
+            
+            // ETL 엔진 상태
+            if (data.engineHealthy) {
+                etlStatus.innerHTML = '<span class="status-indicator status-online"></span><span>정상 동작</span>';
+            } else {
+                etlStatus.innerHTML = '<span class="status-indicator status-offline"></span><span>오류 발생</span>';
+            }
+            
+            // WCS DB 연결 상태
+            if (data.wcsConnected) {
+                wcsStatus.innerHTML = '<span class="status-indicator status-online"></span><span>연결됨</span>';
+            } else {
+                wcsStatus.innerHTML = '<span class="status-indicator status-offline"></span><span>연결 안됨</span>';
+            }
+            
+            // 마지막 실행 시간
+            if (data.lastExecutionTime) {
+                console.log('lastExecutionTime 원본 값:', data.lastExecutionTime);
+                console.log('lastExecutionTime 타입:', typeof data.lastExecutionTime);
+                const date = new Date(new Date('2025-01-01').getTime() + parseInt(data.lastExecutionTime));
+                console.log('변환된 날짜:', date);
+                lastExecution.innerHTML = `<span>${date.toLocaleString('ko-KR')}</span>`;
+            } else {
+                lastExecution.innerHTML = '<span>실행 기록 없음</span>';
+            }
+        }
+        
+        // 통계 업데이트
+        function updateStatistics(stats) {
+            const grid = document.getElementById('statistics-grid');
+            
+            console.log('통계 업데이트 시작, stats:', stats);
+            console.log('stats 타입:', typeof stats);
+            
+            if (!stats) {
+                console.log('통계 데이터가 없습니다.');
+                grid.innerHTML = '<div class="error">통계 정보를 가져올 수 없습니다.</div>';
+                return;
+            }
+            
+            // JSON 객체의 속성에 직접 접근
+            console.log('통계 속성들:', {
+                totalProcessedRecords: stats.totalProcessedRecords,
+                successfulRecords: stats.successfulRecords,
+                failedRecords: stats.failedRecords,
+                skippedRecords: stats.skippedRecords,
+                errorCount: stats.errorCount,
+                retryCount: stats.retryCount
+            });
+            
+            grid.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-number">${stats.totalProcessedRecords || 0}</div>
+                    <div class="stat-label">총 처리된 레코드</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.successfulRecords || 0}</div>
+                    <div class="stat-label">성공한 레코드</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.failedRecords || 0}</div>
+                    <div class="stat-label">실패한 레코드</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.skippedRecords || 0}</div>
+                    <div class="stat-label">건너뛴 레코드</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.errorCount || 0}</div>
+                    <div class="stat-label">오류 횟수</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-number">${stats.retryCount || 0}</div>
+                    <div class="stat-label">재시도 횟수</div>
+                </div>
+            `;
+        }
+        
+        // WCS 데이터 표시
+        function displayWcsData(data) {
+            const container = document.getElementById('wcs-data');
+            
+            if (!data || data.length === 0) {
+                container.innerHTML = '<div class="loading">데이터가 없습니다.</div>';
+                return;
+            }
+            
+            const table = `
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>UUID</th>
+                            <th>로봇 번호</th>
+                            <th>맵 코드</th>
+                            <th>상태</th>
+                            <th>배터리</th>
+                            <th>X 좌표</th>
+                            <th>Y 좌표</th>
+                            <th>속도</th>
+                            <th>작업 ID</th>
+                            <th>리포트 시간</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.map(item => `
+                            <tr>
+                                <td>${item.uuidNo ? item.uuidNo.substring(0, 8) + '...' : '-'}</td>
+                                <td>${item.robotNo || '-'}</td>
+                                <td>${item.mapCode || '-'}</td>
+                                <td>${item.status !== null && item.status !== undefined ? item.status : '-'}</td>
+                                <td>${item.battery !== null && item.battery !== undefined ? item.battery + '%' : '-'}</td>
+                                <td>${item.posX !== null && item.posX !== undefined ? item.posX : '-'}</td>
+                                <td>${item.posY !== null && item.posY !== undefined ? item.posY : '-'}</td>
+                                <td>${item.speed !== null && item.speed !== undefined ? item.speed : '-'}</td>
+                                <td>${item.taskId || '-'}</td>
+                                <td>${item.reportTime ? new Date(parseInt(item.reportTime)).toLocaleString('ko-KR') : '-'}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            `;
+            
+            container.innerHTML = table;
+        }
+        
+        // ETL 실행
+        async function executeETL() {
+            try {
+                showMessage('ETL 실행 중...', 'success');
+                
+                const response = await fetch(`${API_BASE}/execute`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage(`ETL 실행 완료! ${result.processedCount}개 레코드 처리됨`, 'success');
+                    refreshStatus();
+                    loadWcsData();
+                } else {
+                    showMessage(`ETL 실행 실패: ${result.error}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('ETL 실행 실패:', error);
+                showMessage('ETL 실행 중 오류가 발생했습니다.', 'error');
+            }
+        }
+        
+        // ETL 재초기화
+        async function reinitializeETL() {
+            try {
+                showMessage('ETL 재초기화 중...', 'success');
+                
+                const response = await fetch(`${API_BASE}/reinitialize`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    showMessage('ETL 재초기화 완료!', 'success');
+                    refreshStatus();
+                } else {
+                    showMessage(`ETL 재초기화 실패: ${result.error}`, 'error');
+                }
+                
+            } catch (error) {
+                console.error('ETL 재초기화 실패:', error);
+                showMessage('ETL 재초기화 중 오류가 발생했습니다.', 'error');
+            }
+        }
+        
+        // 메시지 표시
+        function showMessage(message, type) {
+            const messageArea = document.getElementById('message-area');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = type;
+            messageDiv.textContent = message;
+            
+            messageArea.innerHTML = '';
+            messageArea.appendChild(messageDiv);
+            
+            // 5초 후 메시지 제거
+            setTimeout(() => {
+                messageDiv.remove();
+            }, 5000);
+        }
+        
+        // 자동 새로고침 (30초마다)
+        setInterval(() => {
+            refreshStatus();
+        }, 30000);
+    </script>
+</body>
+</html> 
