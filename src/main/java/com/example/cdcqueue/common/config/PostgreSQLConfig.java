@@ -3,8 +3,7 @@ package com.example.cdcqueue.common.config;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import org.springframework.beans.factory.annotation.Qualifier;
-import org.springframework.boot.context.properties.ConfigurationProperties;
-import org.springframework.boot.jdbc.DataSourceBuilder;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Primary;
@@ -24,6 +23,18 @@ import javax.sql.DataSource;
 @Configuration
 public class PostgreSQLConfig {
     
+    @Value("${spring.datasource.postgresql.url}")
+    private String jdbcUrl;
+    
+    @Value("${spring.datasource.postgresql.username}")
+    private String username;
+    
+    @Value("${spring.datasource.postgresql.password}")
+    private String password;
+    
+    @Value("${spring.datasource.postgresql.driver-class-name}")
+    private String driverClassName;
+    
     /**
      * PostgreSQL 데이터소스
      */
@@ -31,10 +42,10 @@ public class PostgreSQLConfig {
     @Primary
     public DataSource postgresqlDataSource() {
         HikariConfig config = new HikariConfig();
-        config.setJdbcUrl("jdbc:postgresql://localhost:5432/cdcqueue?sslmode=disable&connectTimeout=30&socketTimeout=30");
-        config.setUsername("cdcuser");
-        config.setPassword("cdcpassword");
-        config.setDriverClassName("org.postgresql.Driver");
+        config.setJdbcUrl(jdbcUrl);
+        config.setUsername(username);
+        config.setPassword(password);
+        config.setDriverClassName(driverClassName);
         config.setMaximumPoolSize(10);
         config.setMinimumIdle(2);
         config.setConnectionTimeout(30000);

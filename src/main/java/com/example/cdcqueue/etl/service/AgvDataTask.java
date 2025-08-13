@@ -6,7 +6,7 @@ import com.example.cdcqueue.etl.ETLConfig;
 import com.example.cdcqueue.etl.engine.PullingEngineConfig;
 import com.example.cdcqueue.common.model.AgvData;
 import com.example.cdcqueue.common.model.CdcEvent;
-import com.example.cdcqueue.parser.ParserConfig;
+
 import com.example.cdcqueue.common.queue.EventQueue;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -16,8 +16,13 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.Collections;
 
 /**
  * 새로운 아키텍처를 사용하는 AGV 데이터 처리 태스크
@@ -70,6 +75,16 @@ public class AgvDataTask {
     private boolean initialized = false;
     
     /**
+     * 마지막 처리 시간 (중복 처리 방지용)
+     */
+    private final AtomicReference<LocalDateTime> lastProcessedTime = new AtomicReference<>(null);
+    
+    /**
+     * 처리된 데이터 ID 추적 (중복 방지)
+     */
+    private final Set<String> processedIds = Collections.synchronizedSet(new HashSet<>());
+    
+    /**
      * 생성자
      * 
      * @param etlEngine ETL 엔진
@@ -98,17 +113,32 @@ public class AgvDataTask {
                 initializeETL();
             }
             
-            // ETL 프로세스 실행
+            // NOTE: ETL 프로세스 실행
             List<AgvData> processedData = etlEngine.executeETL();
             
-            // 처리된 데이터를 이벤트로 변환하여 큐에 추가
+            // 중복 처리 방지: 새로운 데이터만 처리
+            int newDataCount = 0;
             for (AgvData agvData : processedData) {
-                addToEventQueue(agvData);
+                String dataId = agvData.getUuidNo() + "_" + agvData.getReportTime();
+                if (!processedIds.contains(dataId)) {
+                    addToEventQueue(agvData);
+                    processedIds.add(dataId);
+                    newDataCount++;
+                }
             }
             
-            if (!processedData.isEmpty()) {
-                log.info("Processed {} AGV data records through ETL engine", processedData.size());
+            // 처리된 데이터 수 제한 (메모리 관리)
+            if (processedIds.size() > 10000) {
+                processedIds.clear();
+                log.info("Cleared processed IDs cache for memory management");
             }
+            
+            if (newDataCount > 0) {
+                log.info("Processed {} new AGV data records through ETL engine (total: {})", newDataCount, processedData.size());
+            }
+            
+            // 마지막 처리 시간 업데이트
+            lastProcessedTime.set(LocalDateTime.now());
             
         } catch (Exception e) {
             log.error("Error in AGV data processing: {}", e.getMessage(), e);
@@ -127,15 +157,12 @@ public class AgvDataTask {
             pullingConfig.setStrategy(PullingEngineConfig.PullingStrategy.valueOf(etlProperties.getPulling().getStrategy()));
             // WCS DB 설정은 별도 데이터소스로 관리되므로 DatabaseConfig는 설정하지 않음
             
-            // 파서 설정
-            ParserConfig parserConfig = new ParserConfig();
-            parserConfig.setValidationEnabled(etlProperties.getValidation().isEnabled());
-            parserConfig.setAllowNullValues(false);
+
             
             // ETL 설정 (Properties에서 읽어옴)
             etlConfig = new ETLConfig();
             etlConfig.setPullingConfig(pullingConfig);
-            etlConfig.setParserConfig(parserConfig);
+
             etlConfig.setExecutionInterval(etlProperties.getPulling().getInterval());
             etlConfig.setValidationEnabled(etlProperties.getValidation().isEnabled());
             etlConfig.setTransformationEnabled(etlProperties.getTransformation().isEnabled());

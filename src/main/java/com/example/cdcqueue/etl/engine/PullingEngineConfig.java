@@ -40,7 +40,7 @@ public class PullingEngineConfig {
     /**
      * 데이터베이스 연결 설정
      */
-    private DatabaseConfig databaseConfig;
+    private DatabaseConnectionConfig databaseConfig;
     
     /**
      * 풀링 전략 (FULL, CONDITIONAL, HYBRID)
@@ -59,7 +59,7 @@ public class PullingEngineConfig {
     // 생성자
     public PullingEngineConfig() {}
     
-    public PullingEngineConfig(Duration pullInterval, int batchSize, DatabaseConfig databaseConfig) {
+    public PullingEngineConfig(Duration pullInterval, int batchSize, DatabaseConnectionConfig databaseConfig) {
         this.pullInterval = pullInterval;
         this.batchSize = batchSize;
         this.databaseConfig = databaseConfig;
@@ -81,8 +81,8 @@ public class PullingEngineConfig {
     public Duration getRetryInterval() { return retryInterval; }
     public void setRetryInterval(Duration retryInterval) { this.retryInterval = retryInterval; }
     
-    public DatabaseConfig getDatabaseConfig() { return databaseConfig; }
-    public void setDatabaseConfig(DatabaseConfig databaseConfig) { this.databaseConfig = databaseConfig; }
+    public DatabaseConnectionConfig getDatabaseConfig() { return databaseConfig; }
+    public void setDatabaseConfig(DatabaseConnectionConfig databaseConfig) { this.databaseConfig = databaseConfig; }
     
     public PullingStrategy getStrategy() { return strategy; }
     public void setStrategy(PullingStrategy strategy) { this.strategy = strategy; }

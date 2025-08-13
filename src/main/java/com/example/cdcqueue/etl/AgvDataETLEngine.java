@@ -1,10 +1,9 @@
 package com.example.cdcqueue.etl;
 
-import com.example.cdcqueue.etl.engine.HybridPullingEngine;
+import com.example.cdcqueue.etl.engine.AgvHybridPullingEngine;
 import com.example.cdcqueue.etl.engine.PullingEngineConfig;
 import com.example.cdcqueue.common.model.AgvData;
-import com.example.cdcqueue.parser.ParserConfig;
-import com.example.cdcqueue.parser.SqlDataParser;
+
 import com.example.cdcqueue.etl.service.KafkaProducerService;
 import com.example.cdcqueue.etl.service.PostgreSQLDataService;
 import org.slf4j.Logger;
@@ -19,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -36,19 +36,16 @@ import java.util.concurrent.atomic.AtomicReference;
  * @version 2.0
  */
 @Component
-public class AgvDataETLEngine implements DataETLEngine {
+public class AgvDataETLEngine implements DataETLEngine<AgvData> {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataETLEngine.class);
     
     /**
      * 풀링 엔진
      */
-    private final HybridPullingEngine pullingEngine;
+    private final AgvHybridPullingEngine pullingEngine;
     
-    /**
-     * SQL 데이터 파서
-     */
-    private final SqlDataParser sqlParser;
+
     
     /**
      * Kafka Producer 서비스
@@ -96,19 +93,17 @@ public class AgvDataETLEngine implements DataETLEngine {
      * 생성자
      * 
      * @param pullingEngine 풀링 엔진
-     * @param sqlParser SQL 데이터 파서
+
      * @param kafkaProducerService Kafka Producer 서비스
      * @param postgreSQLDataService PostgreSQL 데이터 서비스
      * @param messagingTemplate WebSocket 메시징 템플릿
      */
     @Autowired
-    public AgvDataETLEngine(HybridPullingEngine pullingEngine, 
-                           SqlDataParser sqlParser,
+    public AgvDataETLEngine(AgvHybridPullingEngine pullingEngine, 
                            KafkaProducerService kafkaProducerService,
                            PostgreSQLDataService postgreSQLDataService,
                            SimpMessagingTemplate messagingTemplate) {
         this.pullingEngine = pullingEngine;
-        this.sqlParser = sqlParser;
         this.kafkaProducerService = kafkaProducerService;
         this.postgreSQLDataService = postgreSQLDataService;
         this.messagingTemplate = messagingTemplate;
@@ -127,7 +122,7 @@ public class AgvDataETLEngine implements DataETLEngine {
         
         // PostgreSQL 테이블 존재 확인
         if (!postgreSQLDataService.isTableExists()) {
-            log.error("PostgreSQL agv_data 테이블이 존재하지 않음. ETL 엔진 초기화 중단.");
+            log.error("PostgreSQL robot_info 테이블이 존재하지 않음. ETL 엔진 초기화 중단.");
             status.set(EngineStatus.ERROR);
             return;
         }
@@ -135,8 +130,7 @@ public class AgvDataETLEngine implements DataETLEngine {
         // 풀링 엔진 초기화
         pullingEngine.initialize(config.getPullingConfig());
         
-        // 파서 초기화
-        sqlParser.initialize(config.getParserConfig());
+
         
         status.set(EngineStatus.RUNNING);
         log.info("AgvDataETLEngine initialized successfully with PostgreSQL connection verified");
@@ -395,6 +389,11 @@ public class AgvDataETLEngine implements DataETLEngine {
      * AGV 데이터 변환
      */
     private AgvData transformAgvData(AgvData agvData) {
+        // UUID가 없는 경우에만 생성 (원본 UUID 유지)
+        if (agvData.getUuidNo() == null || agvData.getUuidNo().isEmpty()) {
+            agvData.setUuidNo(UUID.randomUUID().toString());
+        }
+        
         // 좌표 정밀도 조정 (소수점 4자리)
         if (agvData.getPosX() != null) {
             agvData.setPosX(agvData.getPosX().setScale(4, BigDecimal.ROUND_HALF_UP));
@@ -503,16 +502,11 @@ public class AgvDataETLEngine implements DataETLEngine {
         defaultConfig.setTransformationEnabled(true);
         defaultConfig.setErrorHandlingMode(ETLConfig.ErrorHandlingMode.CONTINUE);
         
-        // 기본 풀링 설정 생성
+        // 기본 풀링 설정 생성 (0.1초 주기)
         PullingEngineConfig pullingConfig = new PullingEngineConfig();
-        pullingConfig.setPullInterval(java.time.Duration.ofSeconds(5)); // 5초
+        pullingConfig.setPullInterval(java.time.Duration.ofMillis(100)); // 0.1초 (100ms)
         pullingConfig.setBatchSize(100);
         defaultConfig.setPullingConfig(pullingConfig);
-        
-        // 기본 파서 설정 생성
-        ParserConfig parserConfig = new ParserConfig();
-        parserConfig.setValidationEnabled(true);
-        defaultConfig.setParserConfig(parserConfig);
         
         // 초기화 실행
         initialize(defaultConfig);

@@ -47,28 +47,11 @@ public class PostgreSQLDataService {
             }
             
             String sql = """
-                INSERT INTO agv_data (
+                INSERT INTO robot_info (
                     uuid_no, robot_no, map_code, zone_code, status, manual, 
                     loaders, report_time, battery, node_id, pos_x, pos_y, 
                     speed, task_id, next_target, pod_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (uuid_no) DO UPDATE SET
-                    robot_no = EXCLUDED.robot_no,
-                    map_code = EXCLUDED.map_code,
-                    zone_code = EXCLUDED.zone_code,
-                    status = EXCLUDED.status,
-                    manual = EXCLUDED.manual,
-                    loaders = EXCLUDED.loaders,
-                    report_time = EXCLUDED.report_time,
-                    battery = EXCLUDED.battery,
-                    node_id = EXCLUDED.node_id,
-                    pos_x = EXCLUDED.pos_x,
-                    pos_y = EXCLUDED.pos_y,
-                    speed = EXCLUDED.speed,
-                    task_id = EXCLUDED.task_id,
-                    next_target = EXCLUDED.next_target,
-                    pod_id = EXCLUDED.pod_id,
-                    updated_at = CURRENT_TIMESTAMP
                 """;
             
             int result = postgresqlJdbcTemplate.update(sql,
@@ -121,28 +104,11 @@ public class PostgreSQLDataService {
         
         try {
             String sql = """
-                INSERT INTO agv_data (
+                INSERT INTO robot_info (
                     uuid_no, robot_no, map_code, zone_code, status, manual, 
                     loaders, report_time, battery, node_id, pos_x, pos_y, 
                     speed, task_id, next_target, pod_id
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (uuid_no) DO UPDATE SET
-                    robot_no = EXCLUDED.robot_no,
-                    map_code = EXCLUDED.map_code,
-                    zone_code = EXCLUDED.zone_code,
-                    status = EXCLUDED.status,
-                    manual = EXCLUDED.manual,
-                    loaders = EXCLUDED.loaders,
-                    report_time = EXCLUDED.report_time,
-                    battery = EXCLUDED.battery,
-                    node_id = EXCLUDED.node_id,
-                    pos_x = EXCLUDED.pos_x,
-                    pos_y = EXCLUDED.pos_y,
-                    speed = EXCLUDED.speed,
-                    task_id = EXCLUDED.task_id,
-                    next_target = EXCLUDED.next_target,
-                    pod_id = EXCLUDED.pod_id,
-                    updated_at = CURRENT_TIMESTAMP
                 """;
             
             int totalUpdated = 0;
@@ -234,7 +200,7 @@ public class PostgreSQLDataService {
         try {
             String sql = """
                 INSERT INTO kafka_message_history (
-                    topic, partition, offset, key, message, status, error_message
+                    topic, partition, message_offset, key, message, status, error_message
                 ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
             
@@ -262,45 +228,81 @@ public class PostgreSQLDataService {
      */
     public boolean isConnected() {
         try {
-            Integer result = postgresqlJdbcTemplate.queryForObject("SELECT 1", Integer.class);
-            if (result != null && result == 1) {
-                log.debug("PostgreSQL 연결 상태: 정상");
-                return true;
-            } else {
-                log.warn("PostgreSQL 연결 테스트 실패: 예상치 못한 결과");
+            if (postgresqlJdbcTemplate == null) {
+                log.error("PostgreSQL JdbcTemplate is null");
                 return false;
             }
+            
+            // 간단한 쿼리로 연결 테스트
+            postgresqlJdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            log.debug("PostgreSQL 연결 상태 확인 성공");
+            return true;
         } catch (Exception e) {
-            log.error("PostgreSQL 연결 테스트 실패: {}", e.getMessage());
+            log.error("PostgreSQL 연결 상태 확인 실패: {}", e.getMessage());
             return false;
         }
     }
     
     /**
-     * PostgreSQL 테이블 존재 여부 확인
+     * robot_info 테이블 존재 여부 확인
      * 
      * @return 테이블 존재 여부
      */
     public boolean isTableExists() {
         try {
+            if (!isConnected()) {
+                log.error("PostgreSQL 연결이 없어 테이블 존재 여부를 확인할 수 없음");
+                return false;
+            }
+            
             String sql = """
                 SELECT EXISTS (
                     SELECT FROM information_schema.tables 
                     WHERE table_schema = 'public' 
-                    AND table_name = 'agv_data'
+                    AND table_name = 'robot_info'
                 )
                 """;
+            
             Boolean exists = postgresqlJdbcTemplate.queryForObject(sql, Boolean.class);
-            if (exists != null && exists) {
-                log.debug("PostgreSQL agv_data 테이블 존재 확인");
-                return true;
+            boolean tableExists = exists != null && exists;
+            
+            if (tableExists) {
+                log.info("PostgreSQL robot_info 테이블이 존재함");
             } else {
-                log.error("PostgreSQL agv_data 테이블이 존재하지 않음");
-                return false;
+                log.warn("PostgreSQL robot_info 테이블이 존재하지 않음");
             }
+            
+            return tableExists;
+            
         } catch (Exception e) {
-            log.error("PostgreSQL 테이블 확인 실패: {}", e.getMessage());
+            log.error("PostgreSQL 테이블 존재 여부 확인 실패: {}", e.getMessage(), e);
             return false;
+        }
+    }
+
+    /**
+     * robot_info 테이블의 레코드 수 조회
+     * 
+     * @return 레코드 수
+     */
+    public int getRobotInfoCount() {
+        try {
+            if (!isConnected()) {
+                log.error("PostgreSQL 연결이 없어 레코드 수를 조회할 수 없음");
+                return 0;
+            }
+            
+            String sql = "SELECT COUNT(*) FROM robot_info";
+            Integer count = postgresqlJdbcTemplate.queryForObject(sql, Integer.class);
+            
+            int recordCount = count != null ? count : 0;
+            log.debug("PostgreSQL robot_info 테이블 레코드 수: {}", recordCount);
+            
+            return recordCount;
+            
+        } catch (Exception e) {
+            log.error("PostgreSQL 레코드 수 조회 실패: {}", e.getMessage(), e);
+            return 0;
         }
     }
 } 

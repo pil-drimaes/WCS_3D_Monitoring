@@ -1,12 +1,11 @@
 package com.example.cdcqueue.etl.engine;
 
-import com.example.cdcqueue.common.model.AgvData;
 import java.util.List;
 
 /**
- * 데이터 풀링 엔진 인터페이스
+ * 데이터 풀링 엔진 인터페이스 (제네릭)
  * 
- * 다양한 데이터 소스에서 AGV 데이터를 가져오는 엔진의 공통 인터페이스
+ * 다양한 데이터 소스에서 데이터를 가져오는 엔진의 공통 인터페이스
  * 전략 패턴을 사용하여 다양한 풀링 전략을 구현할 수 있습니다.
  * 
  * 구현 클래스:
@@ -17,14 +16,14 @@ import java.util.List;
  * @author AGV Monitoring System
  * @version 2.0
  */
-public interface DataPullingEngine {
+public interface DataPullingEngine<T> {
     
     /**
-     * 새로운 AGV 데이터를 풀링합니다.
+     * 새로운 데이터를 풀링합니다.
      * 
-     * @return 새로 감지된 AGV 데이터 리스트
+     * @return 새로 감지된 데이터 리스트
      */
-    List<AgvData> pullNewData();
+    List<T> pullNewData();
     
     /**
      * 엔진 초기화

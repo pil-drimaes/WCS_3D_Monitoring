@@ -54,6 +54,60 @@ public class KafkaProducerService {
     }
     
     /**
+     * 일반 메시지를 Kafka로 전송
+     * 
+     * @param topic 토픽명
+     * @param message 전송할 메시지
+     * @return 전송 성공 여부
+     */
+    public boolean sendMessage(String topic, String message) {
+        try {
+            String key = UUID.randomUUID().toString();
+            
+            CompletableFuture<SendResult<String, Object>> future = kafkaTemplate.send(topic, key, message);
+            
+            future.whenComplete((result, throwable) -> {
+                if (throwable == null) {
+                    log.debug("메시지 Kafka 전송 성공: topic={}, partition={}, offset={}", 
+                        result.getRecordMetadata().topic(), 
+                        result.getRecordMetadata().partition(), result.getRecordMetadata().offset());
+                    
+                    // 성공 이력 저장
+                    postgreSQLDataService.saveKafkaMessageHistory(
+                        topic,
+                        result.getRecordMetadata().partition(),
+                        result.getRecordMetadata().offset(),
+                        key,
+                        message,
+                        "SENT",
+                        null
+                    );
+                } else {
+                    log.error("메시지 Kafka 전송 실패: topic={}, error={}", 
+                        topic, throwable.getMessage(), throwable);
+                    
+                    // 실패 이력 저장
+                    postgreSQLDataService.saveKafkaMessageHistory(
+                        topic,
+                        null,
+                        null,
+                        key,
+                        message,
+                        "FAILED",
+                        throwable.getMessage()
+                    );
+                }
+            });
+            
+            return true;
+            
+        } catch (Exception e) {
+            log.error("메시지 Kafka 전송 예외: topic={}, error={}", topic, e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    /**
      * 단일 AGV 데이터를 Kafka로 전송
      * 
      * @param agvData 전송할 AGV 데이터

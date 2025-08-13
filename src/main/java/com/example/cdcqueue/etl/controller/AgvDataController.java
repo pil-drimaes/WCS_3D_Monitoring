@@ -5,7 +5,7 @@ import com.example.cdcqueue.etl.ETLStatistics;
 import com.example.cdcqueue.common.model.AgvData;
 import com.example.cdcqueue.etl.service.AgvDataService;
 import com.example.cdcqueue.etl.service.PostgreSQLDataService;
-import com.example.cdcqueue.etl.engine.HybridPullingEngine;
+import com.example.cdcqueue.etl.engine.AgvHybridPullingEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,9 +43,9 @@ public class AgvDataController {
     private final AgvDataService wcsService;
     
     /**
-     * 하이브리드 풀링 엔진
+     * AGV 하이브리드 풀링 엔진
      */
-    private final HybridPullingEngine pullingEngine;
+    private final AgvHybridPullingEngine pullingEngine;
     
     /**
      * PostgreSQL 데이터 서비스
@@ -61,7 +61,7 @@ public class AgvDataController {
      * @param postgreSQLDataService PostgreSQL 데이터 서비스
      */
     @Autowired
-    public AgvDataController(AgvDataETLEngine etlEngine, AgvDataService wcsService, HybridPullingEngine pullingEngine, PostgreSQLDataService postgreSQLDataService) {
+    public AgvDataController(AgvDataETLEngine etlEngine, AgvDataService wcsService, AgvHybridPullingEngine pullingEngine, PostgreSQLDataService postgreSQLDataService) {
         this.etlEngine = etlEngine;
         this.wcsService = wcsService;
         this.pullingEngine = pullingEngine;

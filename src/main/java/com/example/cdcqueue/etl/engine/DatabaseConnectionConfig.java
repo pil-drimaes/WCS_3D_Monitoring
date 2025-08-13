@@ -1,14 +1,14 @@
 package com.example.cdcqueue.etl.engine;
 
 /**
- * 데이터베이스 연결 설정 클래스
+ * 데이터베이스 연결 설정 정보 클래스
  * 
- * WCS DB 연결을 위한 설정 정보를 담습니다.
+ * WCS DB 연결을 위한 설정 정보를 담는 POJO 클래스입니다.
  * 
  * @author AGV Monitoring System
  * @version 2.0
  */
-public class DatabaseConfig {
+public class DatabaseConnectionConfig {
     
     /**
      * 데이터베이스 URL
@@ -51,9 +51,9 @@ public class DatabaseConfig {
     private int queryTimeout = 60;
     
     // 생성자
-    public DatabaseConfig() {}
+    public DatabaseConnectionConfig() {}
     
-    public DatabaseConfig(String url, String username, String password) {
+    public DatabaseConnectionConfig(String url, String username, String password) {
         this.url = url;
         this.username = username;
         this.password = password;

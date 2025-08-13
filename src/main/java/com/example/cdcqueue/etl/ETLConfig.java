@@ -1,7 +1,7 @@
 package com.example.cdcqueue.etl;
 
 import com.example.cdcqueue.etl.engine.PullingEngineConfig;
-import com.example.cdcqueue.parser.ParserConfig;
+
 import java.time.Duration;
 
 /**
@@ -19,10 +19,7 @@ public class ETLConfig {
      */
     private PullingEngineConfig pullingConfig;
     
-    /**
-     * 파서 설정
-     */
-    private ParserConfig parserConfig;
+
     
     /**
      * ETL 실행 간격 (기본값: 1초)
@@ -71,17 +68,15 @@ public class ETLConfig {
     // 생성자
     public ETLConfig() {}
     
-    public ETLConfig(PullingEngineConfig pullingConfig, ParserConfig parserConfig) {
+    public ETLConfig(PullingEngineConfig pullingConfig) {
         this.pullingConfig = pullingConfig;
-        this.parserConfig = parserConfig;
     }
     
     // Getter/Setter 메서드들
     public PullingEngineConfig getPullingConfig() { return pullingConfig; }
     public void setPullingConfig(PullingEngineConfig pullingConfig) { this.pullingConfig = pullingConfig; }
     
-    public ParserConfig getParserConfig() { return parserConfig; }
-    public void setParserConfig(ParserConfig parserConfig) { this.parserConfig = parserConfig; }
+
     
     public Duration getExecutionInterval() { return executionInterval; }
     public void setExecutionInterval(Duration executionInterval) { this.executionInterval = executionInterval; }

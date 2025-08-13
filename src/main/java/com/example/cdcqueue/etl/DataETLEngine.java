@@ -16,15 +16,15 @@ import java.util.List;
  * @author AGV Monitoring System
  * @version 2.0
  */
-public interface DataETLEngine {
+public interface DataETLEngine<T> {
     
     /**
      * ETL 프로세스 실행
      * 
-     * @return 처리된 AGV 데이터 리스트
+     * @return 처리된 데이터 리스트
      * @throws ETLEngineException ETL 처리 중 오류 발생 시
      */
-    List<AgvData> executeETL() throws ETLEngineException;
+    List<T> executeETL() throws ETLEngineException;
     
     /**
      * ETL 엔진 초기화

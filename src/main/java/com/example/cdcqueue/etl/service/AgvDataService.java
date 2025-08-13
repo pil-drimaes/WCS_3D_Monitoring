@@ -82,7 +82,7 @@ public class AgvDataService {
                 SELECT uuid_no, robot_no, map_code, zone_code, status, manual, 
                        loaders, report_time, battery, node_id, pos_x, pos_y, 
                        speed, task_id, next_target, pod_id
-                FROM agv_data 
+                FROM robot_info 
                 ORDER BY report_time DESC
                 """;
             
@@ -123,7 +123,7 @@ public class AgvDataService {
                 SELECT TOP 10 uuid_no, robot_no, map_code, zone_code, status, manual, 
                        loaders, report_time, battery, node_id, pos_x, pos_y, 
                        speed, task_id, next_target, pod_id
-                FROM agv_data 
+                FROM robot_info 
                 ORDER BY report_time DESC
                 """;
             
@@ -170,7 +170,7 @@ public class AgvDataService {
                 SELECT uuid_no, robot_no, map_code, zone_code, status, manual, 
                        loaders, report_time, battery, node_id, pos_x, pos_y, 
                        speed, task_id, next_target, pod_id
-                FROM agv_data 
+                FROM robot_info 
                 WHERE report_time > ? 
                 ORDER BY report_time DESC
                 """;
@@ -212,7 +212,7 @@ public class AgvDataService {
      */
     public LocalDateTime getLatestTimestamp() {
         try {
-            String sql = "SELECT MAX(report_time) as LatestTime FROM agv_data";
+            String sql = "SELECT MAX(report_time) as LatestTime FROM robot_info";
             
             return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> {
                 Long timestamp = rs.getLong("LatestTime");
@@ -260,7 +260,7 @@ public class AgvDataService {
                     IS_NULLABLE,
                     COLUMN_DEFAULT
                 FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_NAME = 'agv_data'
+                WHERE TABLE_NAME = 'robot_info'
                 ORDER BY ORDINAL_POSITION
                 """;
             
