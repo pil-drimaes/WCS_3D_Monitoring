@@ -1,93 +1,199 @@
-# Data_Stream
+# CDC Queue - Change Data Capture System
 
+MSSQL에서 PostgreSQL로 실시간 데이터 동기화를 수행하는 Change Data Capture (CDC) 시스템입니다.
 
+## 🚀 주요 기능
 
-## Getting started
+### **실시간 데이터 동기화**
+- **Robot 데이터**: 0.1초마다 실시간 감지 및 동기화 ✅
+- **Inventory 데이터**: 3초마다 재고 정보 동기화
+- **Pod 데이터**: 3초마다 POD 정보 동기화
 
-To make it easy for you to get started with GitLab, here's a list of recommended next steps.
+### **하이브리드 풀링 엔진**
+- 조건부 쿼리와 주기적 전체 동기화를 결합한 효율적인 데이터 변경 감지
+- 10분마다 전체 동기화 수행으로 데이터 무결성 보장
 
-Already a pro? Just edit this README.md and make it your own. Want to make it easy? [Use the template at the bottom](#editing-this-readme)!
+### **자동 중복 필터링**
+- `report_time` 기반의 스마트한 중복 데이터 필터링
+- 새로운 데이터와 업데이트된 데이터만 처리
 
-## Add your files
-
-- [ ] [Create](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#create-a-file) or [upload](https://docs.gitlab.com/ee/user/project/repository/web_editor.html#upload-a-file) files
-- [ ] [Add files using the command line](https://docs.gitlab.com/topics/git/add_files/#add-files-to-a-git-repository) or push an existing Git repository with the following command:
+## 🏗️ 아키텍처
 
 ```
-cd existing_repo
-git remote add origin https://gitlab.com/drimaes/creative-center/dls_3d/da_system/data_stream.git
-git branch -M main
-git push -uf origin main
+MSSQL (Source) → ETL Engine → PostgreSQL (Target)
+     ↓              ↓              ↓
+  robot_info   AgvDataETLEngine  robot_info
+inventory_info InventoryDataETLEngine inventory_info
+   pod_info    PodDataETLEngine     pod_info
 ```
 
-## Integrate with your tools
+## 📁 프로젝트 구조
 
-- [ ] [Set up project integrations](https://gitlab.com/drimaes/creative-center/dls_3d/da_system/data_stream/-/settings/integrations)
+```
+src/main/java/com/example/cdcqueue/
+├── CdcQueueApplication.java          # 메인 애플리케이션
+├── common/
+│   ├── config/
+│   │   ├── DatabaseConfig.java      # 데이터베이스 설정
+│   │   ├── ETLProperties.java       # ETL 설정
+│   │   ├── JacksonConfig.java       # JSON 설정
+│   │   └── PostgreSQLConfig.java    # PostgreSQL 설정
+│   ├── model/
+│   │   ├── AgvData.java            # Robot 데이터 모델
+│   │   ├── InventoryInfo.java      # 재고 데이터 모델
+│   │   ├── PodInfo.java            # POD 데이터 모델
+│   │   └── CdcEvent.java           # CDC 이벤트 모델
+│   └── queue/
+│       └── EventQueue.java         # 이벤트 큐
+├── etl/
+│   ├── AgvDataETLEngine.java       # Robot ETL 엔진 (핵심)
+│   ├── InventoryDataETLEngine.java # 재고 ETL 엔진
+│   ├── PodDataETLEngine.java       # POD ETL 엔진
+│   ├── DataETLEngine.java          # ETL 인터페이스
+│   ├── ETLConfig.java              # ETL 설정
+│   ├── ETLStatistics.java          # ETL 통계
+│   ├── ETLEngineException.java     # ETL 예외 처리
+│   ├── engine/
+│   │   ├── HybridPullingEngine.java    # 하이브리드 풀링 엔진
+│   │   ├── AgvHybridPullingEngine.java # Robot 전용 풀링 엔진
+│   │   ├── DataPullingEngine.java      # 풀링 엔진 인터페이스
+│   │   └── PullingEngineConfig.java    # 풀링 엔진 설정
+│   ├── service/
+│   │   ├── AgvDataService.java         # Robot 데이터 서비스
+│   │   ├── InventoryDataService.java   # 재고 데이터 서비스
+│   │   ├── PodDataService.java         # POD 데이터 서비스
+│   │   ├── PostgreSQLDataService.java  # PostgreSQL 데이터 서비스
+│   │   ├── AgvDataTask.java            # Robot 스케줄링 태스크
+│   │   ├── InventoryDataTask.java      # 재고 스케줄링 태스크
+│   │   └── PodDataTask.java            # POD 스케줄링 태스크
+│   └── controller/
+│       ├── AgvDataController.java      # Robot API 컨트롤러
+│       ├── InventoryDataController.java # 재고 API 컨트롤러
+│       └── PodDataController.java      # POD API 컨트롤러
+└── resources/
+    ├── application.properties         # 애플리케이션 설정
+    └── static/                       # 대시보드 UI
+        ├── index.html                 # 메인 대시보드
+        ├── realtime-monitor.html      # 실시간 모니터링
+        ├── independent-etl-dashboard.html # 독립 ETL 대시보드
+        ├── inventory-dashboard.html   # 재고 대시보드
+        └── pod-dashboard.html         # POD 대시보드
+```
 
-## Collaborate with your team
+## ⚙️ 설정
 
-- [ ] [Invite team members and collaborators](https://docs.gitlab.com/ee/user/project/members/)
-- [ ] [Create a new merge request](https://docs.gitlab.com/ee/user/project/merge_requests/creating_merge_requests.html)
-- [ ] [Automatically close issues from merge requests](https://docs.gitlab.com/ee/user/project/issues/managing_issues.html#closing-issues-automatically)
-- [ ] [Enable merge request approvals](https://docs.gitlab.com/ee/user/project/merge_requests/approvals/)
-- [ ] [Set auto-merge](https://docs.gitlab.com/user/project/merge_requests/auto_merge/)
+### **데이터베이스 연결**
+```properties
+# MSSQL (Source)
+spring.datasource.url=jdbc:sqlserver://localhost:1433;databaseName=cdc_test
+spring.datasource.username=sa
+spring.datasource.password=nice2025!
 
-## Test and Deploy
+# PostgreSQL (Target)
+spring.postgresql.url=jdbc:postgresql://localhost:5432/cdcqueue
+spring.postgresql.username=postgres
+spring.postgresql.password=postgres
+```
 
-Use the built-in continuous integration in GitLab.
+### **ETL 설정**
+```properties
+# Robot ETL (0.1초마다 실행)
+etl.agv.pull-interval=100ms
+etl.agv.batch-size=100
 
-- [ ] [Get started with GitLab CI/CD](https://docs.gitlab.com/ee/ci/quick_start/)
-- [ ] [Analyze your code for known vulnerabilities with Static Application Security Testing (SAST)](https://docs.gitlab.com/ee/user/application_security/sast/)
-- [ ] [Deploy to Kubernetes, Amazon EC2, or Amazon ECS using Auto Deploy](https://docs.gitlab.com/ee/topics/autodevops/requirements.html)
-- [ ] [Use pull-based deployments for improved Kubernetes management](https://docs.gitlab.com/ee/user/clusters/agent/)
-- [ ] [Set up protected environments](https://docs.gitlab.com/ee/ci/environments/protected_environments.html)
+# Inventory ETL (3초마다 실행)
+etl.inventory.pull-interval=3000ms
 
-***
+# Pod ETL (3초마다 실행)
+etl.pod.pull-interval=3000ms
 
-# Editing this README
+# 전체 동기화 주기 (10분)
+etl.full-sync-interval=600000ms
+```
 
-When you're ready to make this README your own, just edit this file and use the handy template below (or feel free to structure it however you want - this is just a starting point!). Thanks to [makeareadme.com](https://www.makeareadme.com/) for this template.
+## 🚀 실행 방법
 
-## Suggestions for a good README
+### **1. 데이터베이스 시작**
+```bash
+# PostgreSQL 시작
+docker-compose up -d postgres
 
-Every project is different, so consider which of these sections apply to yours. The sections used in the template are suggestions for most open source projects. Also keep in mind that while a README can be too long and detailed, too long is better than too short. If you think your README is too long, consider utilizing another form of documentation rather than cutting out information.
+# MSSQL 시작 (별도 설정 필요)
+# localhost:1433, database: cdc_test
+```
 
-## Name
-Choose a self-explaining name for your project.
+### **2. 애플리케이션 실행**
+```bash
+./gradlew bootRun
+```
 
-## Description
-Let people know what your project can do specifically. Provide context and add a link to any reference visitors might be unfamiliar with. A list of Features or a Background subsection can also be added here. If there are alternatives to your project, this is a good place to list differentiating factors.
+### **3. 대시보드 접속**
+- **메인 대시보드**: http://localhost:8081/
+- **실시간 모니터링**: http://localhost:8081/realtime-monitor.html
+- **재고 대시보드**: http://localhost:8081/inventory-dashboard.html
+- **POD 대시보드**: http://localhost:8081/pod-dashboard.html
 
-## Badges
-On some READMEs, you may see small images that convey metadata, such as whether or not all the tests are passing for the project. You can use Shields to add some to your README. Many services also have instructions for adding a badge.
+## 📊 API 엔드포인트
 
-## Visuals
-Depending on what you are making, it can be a good idea to include screenshots or even a video (you'll frequently see GIFs rather than actual videos). Tools like ttygif can help, but check out Asciinema for a more sophisticated method.
+### **Robot 데이터**
+- `GET /api/agv/data` - Robot 데이터 조회
+- `GET /api/agv/status` - Robot 상태 조회
 
-## Installation
-Within a particular ecosystem, there may be a common way of installing things, such as using Yarn, NuGet, or Homebrew. However, consider the possibility that whoever is reading your README is a novice and would like more guidance. Listing specific steps helps remove ambiguity and gets people to using your project as quickly as possible. If it only runs in a specific context like a particular programming language version or operating system or has dependencies that have to be installed manually, also add a Requirements subsection.
+### **재고 데이터**
+- `GET /api/inventory/data` - 재고 데이터 조회
+- `GET /api/inventory/status` - 재고 상태 조회
 
-## Usage
-Use examples liberally, and show the expected output if you can. It's helpful to have inline the smallest example of usage that you can demonstrate, while providing links to more sophisticated examples if they are too long to reasonably include in the README.
+### **POD 데이터**
+- `GET /api/pod/data` - POD 데이터 조회
+- `GET /api/pod/status` - POD 상태 조회
 
-## Support
-Tell people where they can go to for help. It can be any combination of an issue tracker, a chat room, an email address, etc.
+### **PostgreSQL 데이터**
+- `GET /api/postgresql/data` - PostgreSQL 데이터 상태 조회
 
-## Roadmap
-If you have ideas for releases in the future, it is a good idea to list them in the README.
+## 🔧 핵심 기술
 
-## Contributing
-State if you are open to contributions and what your requirements are for accepting them.
+### **ETL 엔진**
+- **Extract**: MSSQL에서 변경된 데이터 추출
+- **Transform**: 데이터 변환 및 검증
+- **Load**: PostgreSQL에 데이터 저장
 
-For people who want to make changes to your project, it's helpful to have some documentation on how to get started. Perhaps there is a script that they should run or some environment variables that they need to set. Make these steps explicit. These instructions could also be useful to your future self.
+### **하이브리드 풀링**
+- **조건부 쿼리**: `report_time` 기반 변경 데이터 감지
+- **전체 동기화**: 주기적 전체 데이터 검증
+- **중복 필터링**: 스마트한 데이터 중복 제거
 
-You can also document commands to lint the code or run tests. These steps help to ensure high code quality and reduce the likelihood that the changes inadvertently break something. Having instructions for running tests is especially helpful if it requires external setup, such as starting a Selenium server for testing in a browser.
+### **실시간 처리**
+- **0.1초 주기**: Robot 데이터 실시간 감지
+- **3초 주기**: Inventory/POD 데이터 주기적 감지
+- **10분 주기**: 전체 데이터 무결성 검증
 
-## Authors and acknowledgment
-Show your appreciation to those who have contributed to the project.
+## 📈 성능 특징
 
-## License
-For open source projects, say how it is licensed.
+- **Robot ETL**: 0.1초마다 실시간 처리 (22개 → 45개 자동 증가 확인)
+- **메모리 효율성**: `ConcurrentHashMap` 기반 캐시 관리
+- **배치 처리**: 대용량 데이터 처리 지원
+- **자동 복구**: 연결 실패 시 자동 재시도
 
-## Project status
-If you have run out of energy or time for your project, put a note at the top of the README saying that development has slowed down or stopped completely. Someone may choose to fork your project or volunteer to step in as a maintainer or owner, allowing your project to keep going. You can also make an explicit request for maintainers.
+## 🧪 테스트 결과
+
+### **✅ 성공한 기능**
+1. **초기 데이터 로드**: 모든 테이블 정상 삽입
+2. **Robot 실시간 감지**: 데이터 변경 시 즉시 PostgreSQL 반영
+3. **자동 중복 필터링**: report_time 기반 스마트 필터링
+
+### **🔧 최적화 완료**
+1. **불필요한 파일 제거**: 테스트용 파일들 정리
+2. **사용되지 않는 기능 제거**: WebSocket, Kafka 관련 코드 정리
+3. **코드 구조 정리**: 핵심 ETL 기능 중심으로 단순화
+
+## 📝 라이선스
+
+이 프로젝트는 MIT 라이선스 하에 배포됩니다. 
+
+## 🤝 기여
+
+버그 리포트나 기능 제안은 이슈로 등록해 주세요.
+
+---
+
+**CDC Queue** - 실시간 데이터 동기화의 새로운 표준 🚀 
