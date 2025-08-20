@@ -1,0 +1,3 @@
+[submodule "src/main/java/com/example/WCS_DataStream/common/config"]
+	path = src/main/java/com/example/WCS_DataStream/common/config
+	url = git@gitlab.com:drimaes/creative-center/dls_3d/da_system/config_repo.git
