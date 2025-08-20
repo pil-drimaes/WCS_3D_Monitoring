@@ -4,11 +4,13 @@ import com.example.WCS_DataStream.etl.ETLEngineException;
 import com.example.WCS_DataStream.etl.model.PodInfo;
 import com.example.WCS_DataStream.etl.service.PodDataService;
 import com.example.WCS_DataStream.etl.service.KafkaProducerService;
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -30,6 +32,7 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     
     private final PodDataService podDataService;
     private final KafkaProducerService kafkaProducerService;
+    private final PostgreSQLDataService postgreSQLDataService;
     
     // 마지막 실행 시간 추적
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
@@ -38,13 +41,61 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     private final ConcurrentHashMap<String, Long> processedDataCache = new ConcurrentHashMap<>();
     
     public PodDataETLEngine(PodDataService podDataService,
-                           KafkaProducerService kafkaProducerService) {
+                           KafkaProducerService kafkaProducerService,
+                           PostgreSQLDataService postgreSQLDataService) {
         this.podDataService = podDataService;
         this.kafkaProducerService = kafkaProducerService;
+        this.postgreSQLDataService = postgreSQLDataService;
     }
     
     /**
-     * ETL 프로세스 실행
+     * ETL 프로세스 실행 (DataETLEngine 인터페이스 구현)
+     * 
+     * @return 처리된 POD 데이터 리스트
+     * @throws ETLEngineException ETL 처리 중 오류 발생 시
+     */
+    @Override
+    public List<PodInfo> executeETL() throws ETLEngineException {
+        try {
+            // PostgreSQL 연결 상태 및 테이블 존재 확인
+            if (!postgreSQLDataService.isConnected()) {
+                log.error("PostgreSQL 연결 실패. ETL 엔진 중단.");
+                throw new ETLEngineException("PostgreSQL 연결 실패");
+            }
+            
+            if (!postgreSQLDataService.isPodTableExists()) {
+                log.error("PostgreSQL pod_info 테이블이 존재하지 않음. ETL 엔진 중단.");
+                throw new ETLEngineException("PostgreSQL pod_info 테이블이 존재하지 않음");
+            }
+            
+            // 모든 데이터를 가져와서 중복 필터링만 수행 (AgvDataETLEngine과 동일한 방식)
+            List<PodInfo> allData = podDataService.getAllPodData();
+            log.debug("추출된 POD 데이터 {}개", allData.size());
+            
+            if (allData.isEmpty()) {
+                log.debug("처리할 POD 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // 중복 데이터 필터링
+            List<PodInfo> filteredData = filterDuplicateData(allData);
+            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
+            
+            if (filteredData.isEmpty()) {
+                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // Transform & Load: 데이터 변환 및 저장
+            return processETLInternal(filteredData);
+            
+        } catch (Exception e) {
+            throw new ETLEngineException("POD 정보 ETL 처리 중 오류 발생", e);
+        }
+    }
+    
+    /**
+     * ETL 프로세스 실행 (기존 메서드 - 호환성 유지)
      * 
      * @param lastProcessedTime 마지막 처리 시간
      * @return 처리된 레코드 수
@@ -93,7 +144,43 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     }
     
     /**
-     * 중복 데이터 필터링 (report_time 기반)
+     * ETL 프로세스 실행 (내부 구현 - 데이터 기반)
+     * 
+     * @param filteredData 이미 필터링된 데이터
+     * @return 처리된 POD 데이터 리스트
+     */
+    private List<PodInfo> processETLInternal(List<PodInfo> filteredData) {
+        log.debug("POD 정보 ETL 프로세스 시작 - Transform & Load 단계");
+        
+        try {
+            if (filteredData.isEmpty()) {
+                log.debug("처리할 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // Transform: 데이터 변환 (필요시)
+            List<PodInfo> transformedData = transformData(filteredData);
+            
+            // Load: PostgreSQL에 데이터 저장
+            int savedCount = podDataService.savePodDataBatch(transformedData);
+            log.info("POD 데이터 ETL 완료: {}개 중 {}개 저장", transformedData.size(), savedCount);
+            
+            // Kafka 메시지 발행
+            publishToKafka(transformedData);
+            
+            // 마지막 실행 시간 업데이트
+            lastExecutionTime.set(System.currentTimeMillis());
+            
+            return transformedData;
+            
+        } catch (Exception e) {
+            log.error("POD 정보 ETL 프로세스 실패: {}", e.getMessage(), e);
+            throw new RuntimeException("POD 정보 ETL 처리 중 오류 발생", e);
+        }
+    }
+    
+    /**
+     * 중복 데이터 필터링 (PostgreSQL 기반 + 캐시 기반)
      * 
      * @param allData 모든 데이터
      * @return 중복이 제거된 데이터
@@ -105,6 +192,20 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
                     return true; // UUID나 report_time이 없으면 처리
                 }
                 
+                // 1. PostgreSQL에서 이미 존재하는지 확인 (AGV와 동일한 방식)
+                try {
+                    boolean existsInPostgres = postgreSQLDataService.isPodDataExists(data.getUuidNo(), data.getReportTime());
+                    if (existsInPostgres) {
+                        log.debug("PostgreSQL에 이미 존재하는 POD 데이터 제외: uuid={}, report_time={}", 
+                                 data.getUuidNo(), data.getReportTime());
+                        return false;
+                    }
+                } catch (Exception e) {
+                    log.warn("PostgreSQL 중복 체크 실패, 캐시 기반으로 처리: uuid={}, error={}", 
+                             data.getUuidNo(), e.getMessage());
+                }
+                
+                // 2. 캐시 기반 중복 체크 (백업)
                 String key = data.getUuidNo();
                 Long cachedTime = processedDataCache.get(key);
                 

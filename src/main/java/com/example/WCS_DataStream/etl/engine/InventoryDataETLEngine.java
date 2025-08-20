@@ -17,6 +17,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import com.example.WCS_DataStream.etl.ETLStatistics;
 import com.example.WCS_DataStream.etl.config.ETLConfig;
 import com.example.WCS_DataStream.etl.ETLEngineException;
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 
 /**
  * 재고 정보 ETL 엔진
@@ -34,6 +35,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     
     private final InventoryDataService inventoryDataService;
     private final KafkaProducerService kafkaProducerService;
+    private final PostgreSQLDataService postgreSQLDataService;
     
     // 마지막 실행 시간 추적
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
@@ -42,9 +44,11 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     private final ConcurrentHashMap<String, Long> processedDataCache = new ConcurrentHashMap<>();
     
     public InventoryDataETLEngine(InventoryDataService inventoryDataService,
-                                 KafkaProducerService kafkaProducerService) {
+                                 KafkaProducerService kafkaProducerService,
+                                 PostgreSQLDataService postgreSQLDataService) {
         this.inventoryDataService = inventoryDataService;
         this.kafkaProducerService = kafkaProducerService;
+        this.postgreSQLDataService = postgreSQLDataService;
     }
     
     /**
@@ -56,13 +60,37 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     @Override
     public List<InventoryInfo> executeETL() throws ETLEngineException {
         try {
-            // 마지막 처리 시간 조회 (처음 실행시에는 1시간 전으로 설정)
-            LocalDateTime lastProcessedTime = getLatestTimestamp();
-            if (lastProcessedTime == null) {
-                lastProcessedTime = LocalDateTime.now().minusHours(1);
+            // PostgreSQL 연결 상태 및 테이블 존재 확인
+            if (!postgreSQLDataService.isConnected()) {
+                log.error("PostgreSQL 연결 실패. ETL 엔진 중단.");
+                throw new ETLEngineException("PostgreSQL 연결 실패");
             }
             
-            return processETLInternal(lastProcessedTime);
+            if (!postgreSQLDataService.isInventoryTableExists()) {
+                log.error("PostgreSQL inventory_info 테이블이 존재하지 않음. ETL 엔진 중단.");
+                throw new ETLEngineException("PostgreSQL inventory_info 테이블이 존재하지 않음");
+            }
+            
+            // 모든 데이터를 가져와서 중복 필터링만 수행 (AgvDataETLEngine과 동일한 방식)
+            List<InventoryInfo> allData = inventoryDataService.getAllInventoryData();
+            log.debug("추출된 재고 데이터 {}개", allData.size());
+            
+            if (allData.isEmpty()) {
+                log.debug("처리할 재고 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // 중복 데이터 필터링
+            List<InventoryInfo> filteredData = filterDuplicateData(allData);
+            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
+            
+            if (filteredData.isEmpty()) {
+                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // Transform & Load: 데이터 변환 및 저장
+            return processETLInternal(filteredData);
             
         } catch (Exception e) {
             throw new ETLEngineException("재고 정보 ETL 처리 중 오류 발생", e);
@@ -70,7 +98,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     }
     
     /**
-     * ETL 프로세스 실행 (내부 구현)
+     * ETL 프로세스 실행 (내부 구현 - 시간 기반)
      * 
      * @param lastProcessedTime 마지막 처리 시간
      * @return 처리된 재고 데이터 리스트
@@ -119,6 +147,42 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     }
     
     /**
+     * ETL 프로세스 실행 (내부 구현 - 데이터 기반)
+     * 
+     * @param filteredData 이미 필터링된 데이터
+     * @return 처리된 재고 데이터 리스트
+     */
+    private List<InventoryInfo> processETLInternal(List<InventoryInfo> filteredData) {
+        log.debug("재고 정보 ETL 프로세스 시작 - Transform & Load 단계");
+        
+        try {
+            if (filteredData.isEmpty()) {
+                log.debug("처리할 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // Transform: 데이터 변환 (필요시)
+            List<InventoryInfo> transformedData = transformData(filteredData);
+            
+            // Load: PostgreSQL에 데이터 저장
+            int savedCount = inventoryDataService.saveInventoryDataBatch(transformedData);
+            log.info("재고 데이터 ETL 완료: {}개 중 {}개 저장", transformedData.size(), savedCount);
+            
+            // Kafka 메시지 발행
+            publishToKafka(transformedData);
+            
+            // 마지막 실행 시간 업데이트
+            lastExecutionTime.set(System.currentTimeMillis());
+            
+            return transformedData;
+            
+        } catch (Exception e) {
+            log.error("재고 정보 ETL 프로세스 실패: {}", e.getMessage(), e);
+            throw new RuntimeException("재고 정보 ETL 처리 중 오류 발생", e);
+        }
+    }
+    
+    /**
      * ETL 프로세스 실행 (기존 메서드 - 호환성 유지)
      * 
      * @param lastProcessedTime 마지막 처리 시간
@@ -130,7 +194,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     }
     
     /**
-     * 중복 데이터 필터링 (report_time 기반)
+     * 중복 데이터 필터링 (PostgreSQL 기반 + 캐시 기반)
      * 
      * @param allData 모든 데이터
      * @return 중복이 제거된 데이터
@@ -142,6 +206,20 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                     return true; // UUID나 report_time이 없으면 처리
                 }
                 
+                // 1. PostgreSQL에서 이미 존재하는지 확인 (AGV와 동일한 방식)
+                try {
+                    boolean existsInPostgres = postgreSQLDataService.isInventoryDataExists(data.getUuidNo(), data.getReportTime());
+                    if (existsInPostgres) {
+                        log.debug("PostgreSQL에 이미 존재하는 재고 데이터 제외: uuid={}, report_time={}", 
+                                 data.getUuidNo(), data.getReportTime());
+                        return false;
+                    }
+                } catch (Exception e) {
+                    log.warn("PostgreSQL 중복 체크 실패, 캐시 기반으로 처리: uuid={}, error={}", 
+                             data.getUuidNo(), e.getMessage());
+                }
+                
+                // 2. 캐시 기반 중복 체크 (백업)
                 String key = data.getUuidNo();
                 Long cachedTime = processedDataCache.get(key);
                 

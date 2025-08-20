@@ -2,19 +2,15 @@ package com.example.WCS_DataStream.etl.scheduler;
 
 import com.example.WCS_DataStream.etl.config.ETLConfig;
 import com.example.WCS_DataStream.etl.engine.AgvDataETLEngine;
+import com.example.WCS_DataStream.etl.engine.ETLEngine;
 import com.example.WCS_DataStream.etl.model.AgvData;
-// 사용하지 않는 import 제거
-import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
-import java.time.Duration;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Collections;
@@ -35,7 +31,7 @@ import java.util.Collections;
  * @version 2.0
  */
 @Component
-public class AgvDataScheduler {
+public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataScheduler.class);
     
@@ -45,50 +41,71 @@ public class AgvDataScheduler {
     private final AgvDataETLEngine etlEngine;
     
     /**
-     * ETL 설정
-     */
-    private ETLConfig etlConfig;
-    
-    /**
-     * 초기화 완료 여부
-     */
-    private boolean initialized = false;
-    
-    /**
-     * 마지막 처리 시간 (중복 처리 방지용)
-     */
-    private final AtomicReference<LocalDateTime> lastProcessedTime = new AtomicReference<>(null);
-    
-    /**
      * 처리된 데이터 ID 추적 (중복 방지)
      */
     private final Set<String> processedIds = Collections.synchronizedSet(new HashSet<>());
     
     /**
+     * 초기 데이터 처리 완료 여부
+     */
+    private boolean initialDataProcessed = false;
+    
+    /**
      * 생성자
      * 
      * @param etlEngine ETL 엔진
-     * @param objectMapper JSON 직렬화용 ObjectMapper
      */
     @Autowired
-    public AgvDataScheduler(AgvDataETLEngine etlEngine, ObjectMapper objectMapper) {
+    public AgvDataScheduler(AgvDataETLEngine etlEngine) {
         this.etlEngine = etlEngine;
     }
     
+    @Override
+    protected ETLEngine<AgvData> getETLEngine() {
+        return etlEngine;
+    }
+    
+    @Override
+    protected String getSchedulerName() {
+        return "AGV Data";
+    }
+    
     /**
-     * AGV 데이터 처리 (0.1초마다 실행)
-     * 
-     * ETL 엔진을 사용하여 새로운 AGV 데이터를 처리하고 이벤트 큐에 추가합니다.
+     * 초기 데이터 처리 (애플리케이션 시작 시 한 번만)
      */
-    @Scheduled(fixedRate = 100) // 0.1초마다 실행
-    public void scheduleAgvDataProcessing() {
+    @Override
+    protected void processInitialData() {
+        if (initialDataProcessed) {
+            return;
+        }
+        
         try {
+            log.info("AGV 초기 데이터 처리 시작");
             
-            if (!initialized) {
-                initializeETL();
+            // ETL 엔진을 통해 초기 데이터 처리
+            List<AgvData> initialData = etlEngine.executeETL();
+            
+            // 처리된 데이터 ID를 캐시에 저장
+            for (AgvData agvData : initialData) {
+                String dataId = agvData.getUuidNo() + "_" + agvData.getReportTime();
+                processedIds.add(dataId);
             }
             
-            // NOTE: ETL 프로세스 실행
+            initialDataProcessed = true;
+            log.info("AGV 초기 데이터 처리 완료: {}개 레코드", initialData.size());
+            
+        } catch (Exception e) {
+            log.error("AGV 초기 데이터 처리 실패: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 증분 데이터 처리 (변경된 데이터만)
+     */
+    @Override
+    protected void processIncrementalData() {
+        try {
+            // ETL 프로세스 실행
             List<AgvData> processedData = etlEngine.executeETL();
             
             // 중복 처리 방지: 새로운 데이터만 처리
@@ -111,56 +128,29 @@ public class AgvDataScheduler {
                 log.info("Processed {} new AGV data records through ETL engine (total: {})", newDataCount, processedData.size());
             }
             
-            // 마지막 처리 시간 업데이트
-            lastProcessedTime.set(LocalDateTime.now());
-            
         } catch (Exception e) {
-            log.error("Error in AGV data processing: {}", e.getMessage(), e);
+            log.error("Error in AGV incremental data processing: {}", e.getMessage(), e);
         }
     }
     
     /**
-     * ETL 엔진 초기화
+     * 캐시 초기화
      */
-    private void initializeETL() {
-        try {
-            // ETL 설정
-            etlConfig = new ETLConfig();
-            etlConfig.setPullInterval(Duration.ofMillis(100)); // 0.1초
-            etlConfig.setBatchSize(100);
-            etlConfig.setStrategy(ETLConfig.PullingStrategy.HYBRID);
-            etlConfig.setExecutionInterval(Duration.ofMillis(100));
-            etlConfig.setValidationEnabled(true);
-            etlConfig.setTransformationEnabled(true);
-            etlConfig.setErrorHandlingMode(ETLConfig.ErrorHandlingMode.CONTINUE);
-            etlConfig.setRetryCount(3);
-            etlConfig.setRetryInterval(Duration.ofSeconds(5));
-            
-            // ETL 엔진 초기화
-            etlEngine.initialize(etlConfig);
-            
-            initialized = true;
-            log.info("ETL engine initialized successfully with default configuration");
-            
-        } catch (Exception e) {
-            log.error("Error initializing ETL engine: {}", e.getMessage(), e);
-        }
-    }
-    
-    // EventQueue 관련 메서드 제거
-    
-    /**
-     * ETL 엔진 상태 확인
-     */
-    public boolean isETLInitialized() {
-        return initialized;
+    @Override
+    public void clearCache() {
+        processedIds.clear();
+        lastProcessedTime.set(null);
+        initialDataProcessed = false;
+        log.info("Cleared AGV data scheduler cache");
     }
     
     /**
-     * 마지막 처리 시간 반환
+     * 애플리케이션 시작 시 초기화
      */
-    public LocalDateTime getLastProcessedTime() {
-        return lastProcessedTime.get();
+    public void initializeOnStartup() {
+        log.info("AGV 스케줄러 애플리케이션 시작 시 초기화");
+        clearCache();
+        // 다음 executeETLProcess() 호출 시 전체 데이터를 다시 처리
     }
     
     /**
@@ -168,14 +158,5 @@ public class AgvDataScheduler {
      */
     public int getProcessedIdsCount() {
         return processedIds.size();
-    }
-    
-    /**
-     * 캐시 초기화
-     */
-    public void clearCache() {
-        processedIds.clear();
-        lastProcessedTime.set(null);
-        log.info("Cleared AGV data scheduler cache");
     }
 } 

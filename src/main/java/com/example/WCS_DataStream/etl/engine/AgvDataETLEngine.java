@@ -160,6 +160,34 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     }
     
     /**
+     * 중복 데이터 필터링
+     */
+    private List<AgvData> filterDuplicateData(List<AgvData> data) {
+        // PostgreSQL에 이미 저장된 데이터인지 확인
+        return data.stream()
+            .filter(agvData -> {
+                try {
+                    // UUID와 report_time으로 중복 체크
+                    String dataId = agvData.getUuidNo() + "_" + agvData.getReportTime();
+                    
+                    // PostgreSQL에서 해당 데이터가 이미 존재하는지 확인
+                    boolean exists = postgreSQLDataService.isAgvDataExists(agvData.getUuidNo(), agvData.getReportTime());
+                    
+                    if (exists) {
+                        log.debug("Duplicate data filtered out: {}", dataId);
+                        return false;
+                    }
+                    
+                    return true;
+                } catch (Exception e) {
+                    log.warn("Error checking duplicate data: {}", e.getMessage());
+                    return true; // 오류 발생 시 처리하도록 함
+                }
+            })
+            .toList();
+    }
+
+    /**
      * 데이터 변환 (Transform)
      */
     private List<AgvData> transformData(List<AgvData> data) throws ETLEngineException {
@@ -209,13 +237,21 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                 return data;
             }
             
-            log.info("Loading {} records to PostgreSQL and Kafka (immediate processing)", data.size());
+            // 중복 데이터 필터링
+            List<AgvData> filteredData = filterDuplicateData(data);
+            
+            if (filteredData.isEmpty()) {
+                log.debug("No new data to load after duplicate filtering");
+                return filteredData;
+            }
+            
+            log.info("Loading {} records to PostgreSQL and Kafka (immediate processing)", filteredData.size());
             
             int kafkaSuccessCount = 0;
             int postgresSuccessCount = 0;
             
             // PostgreSQL 우선 처리 (실시간성 보장)
-            for (AgvData agvData : data) {
+            for (AgvData agvData : filteredData) {
                 try {
                     // PostgreSQL에 데이터 즉시 저장 (우선순위)
                     boolean postgresSuccess = postgreSQLDataService.saveAgvData(agvData);
@@ -238,15 +274,15 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
             }
             
             log.info("Data loading completed: PostgreSQL={}/{}, Kafka={}/{}", 
-                postgresSuccessCount, data.size(), kafkaSuccessCount, data.size());
+                postgresSuccessCount, filteredData.size(), kafkaSuccessCount, filteredData.size());
             
             // ETL 상태를 Kafka로 전송
             try {
                 kafkaProducerService.sendETLStatus(
                     "batch-" + System.currentTimeMillis(),
-                    data.size(),
+                    filteredData.size(),
                     postgresSuccessCount,
-                    data.size() - postgresSuccessCount,
+                    filteredData.size() - postgresSuccessCount,
                     System.currentTimeMillis() - lastExecutionTime.get(),
                     "COMPLETED"
                 );
@@ -259,19 +295,19 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                 Map<String, Object> updateEvent = new HashMap<>();
                 updateEvent.put("type", "ETL_UPDATE");
                 updateEvent.put("timestamp", System.currentTimeMillis());
-                updateEvent.put("processedCount", data.size());
+                updateEvent.put("processedCount", filteredData.size());
                 updateEvent.put("kafkaSuccessCount", kafkaSuccessCount);
                 updateEvent.put("postgresSuccessCount", postgresSuccessCount);
-                updateEvent.put("data", data);
+                updateEvent.put("data", filteredData);
                 
                 // WebSocket 기능 비활성화
                 // messagingTemplate.convertAndSend("/topic/agv-updates", updateEvent);
-                log.debug("WebSocket update disabled, data processed: {} records", data.size());
+                log.debug("WebSocket update disabled, data processed: {} records", filteredData.size());
             } catch (Exception e) {
                 log.debug("WebSocket update skipped: {}", e.getMessage());
             }
             
-            return data;
+            return filteredData;
             
         } catch (Exception e) {
             log.error("Error during data loading: {}", e.getMessage(), e);

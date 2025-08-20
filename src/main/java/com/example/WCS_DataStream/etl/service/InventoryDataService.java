@@ -29,6 +29,7 @@ public class InventoryDataService {
     
     private JdbcTemplate wcsJdbcTemplate;
     private final JdbcTemplate postgresqlJdbcTemplate;
+    private final PostgreSQLDataService postgresqlDataService;
     
     @Value("${etl.database.url:jdbc:sqlserver://localhost:1433;databaseName=cdc_test;encrypt=true;trustServerCertificate=true}")
     private String databaseUrl;
@@ -42,8 +43,10 @@ public class InventoryDataService {
     @Value("${etl.database.driver:com.microsoft.sqlserver.jdbc.SQLServerDriver}")
     private String driverClassName;
     
-    public InventoryDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate) {
+    public InventoryDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate,
+                               PostgreSQLDataService postgresqlDataService) {
         this.postgresqlJdbcTemplate = postgresqlJdbcTemplate;
+        this.postgresqlDataService = postgresqlDataService;
     }
     
     /**
@@ -73,27 +76,36 @@ public class InventoryDataService {
      * @return 모든 재고 데이터 리스트
      */
     public List<InventoryInfo> getAllInventoryData() {
-        String sql = """
-            SELECT uuid_no, inventory, batch_num, unitload, sku, pre_qty, new_qty, 
-                   origin_order, status, report_time
-            FROM inventory_info 
-            ORDER BY report_time DESC
-            """;
-        
-        return wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
-            InventoryInfo inventoryInfo = new InventoryInfo();
-            inventoryInfo.setUuidNo(rs.getString("uuid_no"));
-            inventoryInfo.setInventory(rs.getString("inventory"));
-            inventoryInfo.setBatchNum(rs.getString("batch_num"));
-            inventoryInfo.setUnitload(rs.getString("unitload"));
-            inventoryInfo.setSku(rs.getString("sku"));
-            inventoryInfo.setPreQty(rs.getInt("pre_qty"));
-            inventoryInfo.setNewQty(rs.getInt("new_qty"));
-            inventoryInfo.setOriginOrder(rs.getString("origin_order"));
-            inventoryInfo.setStatus(rs.getInt("status"));
-            inventoryInfo.setReportTime(rs.getLong("report_time"));
-            return inventoryInfo;
-        });
+        try {
+            String sql = """
+                SELECT uuid_no, inventory, batch_num, unitload, sku, pre_qty, new_qty, 
+                       origin_order, status, report_time
+                FROM inventory_info 
+                ORDER BY report_time DESC
+                """;
+            
+            List<InventoryInfo> result = wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
+                InventoryInfo inventoryInfo = new InventoryInfo();
+                inventoryInfo.setUuidNo(rs.getString("uuid_no"));
+                inventoryInfo.setInventory(rs.getString("inventory"));
+                inventoryInfo.setBatchNum(rs.getString("batch_num"));
+                inventoryInfo.setUnitload(rs.getString("unitload"));
+                inventoryInfo.setSku(rs.getString("sku"));
+                inventoryInfo.setPreQty(rs.getInt("pre_qty"));
+                inventoryInfo.setNewQty(rs.getInt("new_qty"));
+                inventoryInfo.setOriginOrder(rs.getString("origin_order"));
+                inventoryInfo.setStatus(rs.getInt("status"));
+                inventoryInfo.setReportTime(rs.getLong("report_time"));
+                return inventoryInfo;
+            });
+            
+            log.debug("WCS DB에서 재고 데이터 {}개 조회 완료", result.size());
+            return result;
+            
+        } catch (Exception e) {
+            log.error("WCS DB에서 재고 데이터 조회 실패: {}", e.getMessage(), e);
+            return List.of();
+        }
     }
     
     /**
@@ -169,42 +181,8 @@ public class InventoryDataService {
      */
     @Transactional(transactionManager = "postgresqlTransactionManager")
     public boolean saveInventoryData(InventoryInfo inventoryInfo) {
-        try {
-            String sql = """
-                INSERT INTO inventory_info (
-                    uuid_no, inventory, batch_num, unitload, sku, pre_qty, new_qty, 
-                    origin_order, status, report_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """;
-            
-            int result = postgresqlJdbcTemplate.update(sql,
-                inventoryInfo.getUuidNo(),
-                inventoryInfo.getInventory(),
-                inventoryInfo.getBatchNum(),
-                inventoryInfo.getUnitload(),
-                inventoryInfo.getSku(),
-                inventoryInfo.getPreQty(),
-                inventoryInfo.getNewQty(),
-                inventoryInfo.getOriginOrder(),
-                inventoryInfo.getStatus(),
-                inventoryInfo.getReportTime()
-            );
-            
-            if (result > 0) {
-                log.debug("PostgreSQL 재고 데이터 저장 성공: inventory={}, uuid_no={}", 
-                    inventoryInfo.getInventory(), inventoryInfo.getUuidNo());
-                return true;
-            } else {
-                log.warn("PostgreSQL 재고 데이터 저장 실패 (0 rows affected): inventory={}", 
-                    inventoryInfo.getInventory());
-                return false;
-            }
-            
-        } catch (Exception e) {
-            log.error("PostgreSQL 재고 데이터 저장 예외: inventory={}, error={}", 
-                inventoryInfo.getInventory(), e.getMessage(), e);
-            return false;
-        }
+        // PostgreSQLDataService로 위임
+        return postgresqlDataService.saveInventoryData(inventoryInfo);
     }
     
     /**
@@ -215,65 +193,31 @@ public class InventoryDataService {
      */
     @Transactional(transactionManager = "postgresqlTransactionManager")
     public int saveInventoryDataBatch(List<InventoryInfo> inventoryInfoList) {
-        if (inventoryInfoList == null || inventoryInfoList.isEmpty()) {
-            return 0;
-        }
-        
-        try {
-            String sql = """
-                INSERT INTO inventory_info (
-                    uuid_no, inventory, batch_num, unitload, sku, pre_qty, new_qty, 
-                    origin_order, status, report_time
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """;
-            
-            int totalUpdated = 0;
-            for (InventoryInfo inventoryInfo : inventoryInfoList) {
-                int result = postgresqlJdbcTemplate.update(sql,
-                    inventoryInfo.getUuidNo(),
-                    inventoryInfo.getInventory(),
-                    inventoryInfo.getBatchNum(),
-                    inventoryInfo.getUnitload(),
-                    inventoryInfo.getSku(),
-                    inventoryInfo.getPreQty(),
-                    inventoryInfo.getNewQty(),
-                    inventoryInfo.getOriginOrder(),
-                    inventoryInfo.getStatus(),
-                    inventoryInfo.getReportTime()
-                );
-                totalUpdated += result;
-            }
-            
-            log.info("배치 재고 데이터 저장 완료: 총 {}개 중 {}개 저장", inventoryInfoList.size(), totalUpdated);
-            return totalUpdated;
-            
-        } catch (Exception e) {
-            log.error("배치 재고 데이터 저장 실패: error={}", e.getMessage(), e);
-            return 0;
-        }
+        // PostgreSQLDataService로 위임
+        return postgresqlDataService.saveInventoryDataBatch(inventoryInfoList);
     }
     
     /**
      * WCS DB의 최신 타임스탬프를 조회
      * 
-     * @return 최신 타임스탬프 (데이터가 없으면 1시간 전)
+     * @return 최신 타임스탬프 (데이터가 없으면 1년 전)
      */
     public LocalDateTime getLatestTimestamp() {
-        // WCS DB에서 최신 타임스탬프 조회 (PostgreSQL이 아닌)
-        String sql = "SELECT MAX(report_time) as latest_timestamp FROM inventory_info";
-        
         try {
+            String sql = "SELECT MAX(report_time) as latest_timestamp FROM inventory_info";
+            
             Long timestamp = wcsJdbcTemplate.queryForObject(sql, Long.class);
             if (timestamp != null) {
                 return LocalDateTime.ofEpochSecond(timestamp / 1000, 0, java.time.ZoneOffset.UTC);
             } else {
-                // 데이터가 없으면 1시간 전 시간 반환
-                return LocalDateTime.now().minusHours(1);
+                // 데이터가 없으면 1년 전 시간 반환 (AGV와 동일)
+                log.info("재고 데이터가 없어 1년 전부터 처리하도록 설정");
+                return LocalDateTime.now().minusYears(1);
             }
         } catch (Exception e) {
             log.error("Error getting latest timestamp from WCS DB: {}", e.getMessage(), e);
-            // 오류 발생시 1시간 전 시간 반환
-            return LocalDateTime.now().minusHours(1);
+            // 오류 발생시 1년 전 시간 반환 (AGV와 동일)
+            return LocalDateTime.now().minusYears(1);
         }
     }
     

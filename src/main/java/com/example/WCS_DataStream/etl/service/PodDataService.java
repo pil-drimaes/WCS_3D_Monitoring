@@ -29,6 +29,7 @@ public class PodDataService {
     
         private JdbcTemplate wcsJdbcTemplate;
     private final JdbcTemplate postgresqlJdbcTemplate;
+    private final PostgreSQLDataService postgresqlDataService;
     
     @Value("${etl.database.url:jdbc:sqlserver://localhost:1433;databaseName=cdc_test;encrypt=true;trustServerCertificate=true}")
     private String databaseUrl;
@@ -42,8 +43,10 @@ public class PodDataService {
     @Value("${etl.database.driver:com.microsoft.sqlserver.jdbc.SQLServerDriver}")
     private String driverClassName;
     
-    public PodDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate) {
+    public PodDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate,
+                         PostgreSQLDataService postgresqlDataService) {
         this.postgresqlJdbcTemplate = postgresqlJdbcTemplate;
+        this.postgresqlDataService = postgresqlDataService;
     }
     
     /**
@@ -73,21 +76,30 @@ public class PodDataService {
      * @return 모든 POD 데이터 리스트
      */
     public List<PodInfo> getAllPodData() {
-        String sql = """
-            SELECT uuid_no, pod_id, pod_face, location, report_time
-            FROM pod_info 
-            ORDER BY report_time DESC
-            """;
-        
-        return wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
-            PodInfo podInfo = new PodInfo();
-            podInfo.setUuidNo(rs.getString("uuid_no"));
-            podInfo.setPodId(rs.getString("pod_id"));
-            podInfo.setPodFace(rs.getString("pod_face"));
-            podInfo.setLocation(rs.getString("location"));
-            podInfo.setReportTime(rs.getLong("report_time"));
-            return podInfo;
-        });
+        try {
+            String sql = """
+                SELECT uuid_no, pod_id, pod_face, location, report_time
+                FROM pod_info 
+                ORDER BY report_time DESC
+                """;
+            
+            List<PodInfo> result = wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
+                PodInfo podInfo = new PodInfo();
+                podInfo.setUuidNo(rs.getString("uuid_no"));
+                podInfo.setPodId(rs.getString("pod_id"));
+                podInfo.setPodFace(rs.getString("pod_face"));
+                podInfo.setLocation(rs.getString("location"));
+                podInfo.setReportTime(rs.getLong("report_time"));
+                return podInfo;
+            });
+            
+            log.debug("WCS DB에서 POD 데이터 {}개 조회 완료", result.size());
+            return result;
+            
+        } catch (Exception e) {
+            log.error("WCS DB에서 POD 데이터 조회 실패: {}", e.getMessage(), e);
+            return List.of();
+        }
     }
     
     /**
@@ -151,36 +163,8 @@ public class PodDataService {
      */
     @Transactional(transactionManager = "postgresqlTransactionManager")
     public boolean savePodData(PodInfo podInfo) {
-        try {
-            String sql = """
-                INSERT INTO pod_info (
-                    uuid_no, pod_id, pod_face, location, report_time
-                ) VALUES (?, ?, ?, ?, ?)
-                """;
-            
-            int result = postgresqlJdbcTemplate.update(sql,
-                podInfo.getUuidNo(),
-                podInfo.getPodId(),
-                podInfo.getPodFace(),
-                podInfo.getLocation(),
-                podInfo.getReportTime()
-            );
-            
-            if (result > 0) {
-                log.debug("PostgreSQL POD 데이터 저장 성공: pod_id={}, uuid_no={}", 
-                    podInfo.getPodId(), podInfo.getUuidNo());
-                return true;
-            } else {
-                log.warn("PostgreSQL POD 데이터 저장 실패 (0 rows affected): pod_id={}", 
-                    podInfo.getPodId());
-                return false;
-            }
-            
-        } catch (Exception e) {
-            log.error("PostgreSQL POD 데이터 저장 예외: pod_id={}, error={}", 
-                podInfo.getPodId(), e.getMessage(), e);
-            return false;
-        }
+        // PostgreSQLDataService로 위임
+        return postgresqlDataService.savePodData(podInfo);
     }
     
     /**
@@ -191,59 +175,31 @@ public class PodDataService {
      */
     @Transactional(transactionManager = "postgresqlTransactionManager")
     public int savePodDataBatch(List<PodInfo> podInfoList) {
-        if (podInfoList == null || podInfoList.isEmpty()) {
-            return 0;
-        }
-        
-        try {
-            String sql = """
-                INSERT INTO pod_info (
-                    uuid_no, pod_id, pod_face, location, report_time
-                ) VALUES (?, ?, ?, ?, ?)
-                """;
-            
-            int totalUpdated = 0;
-            for (PodInfo podInfo : podInfoList) {
-                int result = postgresqlJdbcTemplate.update(sql,
-                    podInfo.getUuidNo(),
-                    podInfo.getPodId(),
-                    podInfo.getPodFace(),
-                    podInfo.getLocation(),
-                    podInfo.getReportTime()
-                );
-                totalUpdated += result;
-            }
-            
-            log.info("배치 POD 데이터 저장 완료: 총 {}개 중 {}개 저장", podInfoList.size(), totalUpdated);
-            return totalUpdated;
-            
-        } catch (Exception e) {
-            log.error("배치 POD 데이터 저장 실패: error={}", e.getMessage(), e);
-            return 0;
-        }
+        // PostgreSQLDataService로 위임
+        return postgresqlDataService.savePodDataBatch(podInfoList);
     }
     
     /**
      * WCS DB의 최신 타임스탬프를 조회
      * 
-     * @return 최신 타임스탬프 (데이터가 없으면 1시간 전)
+     * @return 최신 타임스탬프 (데이터가 없으면 1년 전)
      */
     public LocalDateTime getLatestTimestamp() {
-        // WCS DB에서 최신 타임스탬프 조회 (PostgreSQL이 아닌)
-        String sql = "SELECT MAX(report_time) as latest_timestamp FROM pod_info";
-        
         try {
+            String sql = "SELECT MAX(report_time) as latest_timestamp FROM pod_info";
+            
             Long timestamp = wcsJdbcTemplate.queryForObject(sql, Long.class);
             if (timestamp != null) {
                 return LocalDateTime.ofEpochSecond(timestamp / 1000, 0, java.time.ZoneOffset.UTC);
             } else {
-                // 데이터가 없으면 1시간 전 시간 반환
-                return LocalDateTime.now().minusHours(1);
+                // 데이터가 없으면 1년 전 시간 반환 (AGV와 동일)
+                log.info("POD 데이터가 없어 1년 전부터 처리하도록 설정");
+                return LocalDateTime.now().minusYears(1);
             }
         } catch (Exception e) {
             log.error("Error getting latest timestamp from WCS DB: {}", e.getMessage(), e);
-            // 오류 발생시 1시간 전 시간 반환
-            return LocalDateTime.now().minusHours(1);
+            // 오류 발생시 1년 전 시간 반환 (AGV와 동일)
+            return LocalDateTime.now().minusYears(1);
         }
     }
     
