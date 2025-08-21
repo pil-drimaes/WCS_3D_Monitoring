@@ -196,25 +196,22 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
         for (AgvData agvData : data) {
             try {
                 // 데이터 검증
-                if (config.isValidationEnabled() && !isValidData(agvData)) {
+                if (config != null && config.isValidationEnabled() && !isValidData(agvData)) {
                     log.warn("Invalid data detected, skipping: {}", agvData);
-                    statistics.setSkippedRecords(statistics.getSkippedRecords() + 1);
                     continue;
                 }
                 
                 // 데이터 변환
-                if (config.isTransformationEnabled()) {
+                if (config != null && config.isTransformationEnabled()) {
                     agvData = transformAgvData(agvData);
                 }
                 
                 transformedData.add(agvData);
-                statistics.setSuccessfulRecords(statistics.getSuccessfulRecords() + 1);
                 
             } catch (Exception e) {
                 log.error("Error transforming data: {}", e.getMessage());
-                statistics.setFailedRecords(statistics.getFailedRecords() + 1);
                 
-                if (config.getErrorHandlingMode() == ETLConfig.ErrorHandlingMode.STOP) {
+                if (config != null && config.getErrorHandlingMode() == ETLConfig.ErrorHandlingMode.STOP) {
                     throw new ETLEngineException("Error during data transformation", e);
                 }
             }
