@@ -1,7 +1,12 @@
 package com.example.WCS_DataStream.etl.engine;
 
+import com.example.WCS_DataStream.etl.ETLEngineException;
+import com.example.WCS_DataStream.etl.ETLStatistics;
+import com.example.WCS_DataStream.etl.config.ETLConfig;
 import com.example.WCS_DataStream.etl.model.InventoryInfo;
 import com.example.WCS_DataStream.etl.service.InventoryDataService;
+
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import com.example.WCS_DataStream.etl.service.KafkaProducerService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,10 +19,6 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
-import com.example.WCS_DataStream.etl.ETLStatistics;
-import com.example.WCS_DataStream.etl.config.ETLConfig;
-import com.example.WCS_DataStream.etl.ETLEngineException;
-import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 
 /**
  * 재고 정보 ETL 엔진
@@ -26,7 +27,7 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
  * 중복 데이터 필터링을 포함한 효율적인 ETL 처리
  * 
  * @author AGV Monitoring System
- * @version 2.0
+ * @version 1.0
  */
 @Component
 public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
@@ -50,6 +51,11 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
         this.kafkaProducerService = kafkaProducerService;
         this.postgreSQLDataService = postgreSQLDataService;
     }
+
+    @Override
+    protected boolean checkTableExists() {
+        return postgreSQLDataService.isInventoryTableExists();
+    }
     
     /**
      * ETL 프로세스 실행 (DataETLEngine 인터페이스 구현)
@@ -61,15 +67,10 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     public List<InventoryInfo> executeETL() throws ETLEngineException {
         try {
             // PostgreSQL 연결 상태 및 테이블 존재 확인
-            if (!postgreSQLDataService.isConnected()) {
-                log.error("PostgreSQL 연결 실패. ETL 엔진 중단.");
-                throw new ETLEngineException("PostgreSQL 연결 실패");
-            }
-            
-            if (!postgreSQLDataService.isInventoryTableExists()) {
+            if (!checkTableExists()) {
                 log.error("PostgreSQL inventory_info 테이블이 존재하지 않음. ETL 엔진 중단.");
                 throw new ETLEngineException("PostgreSQL inventory_info 테이블이 존재하지 않음");
-            }
+            } 
             
             // 모든 데이터를 가져와서 중복 필터링만 수행 (AgvDataETLEngine과 동일한 방식)
             List<InventoryInfo> allData = inventoryDataService.getAllInventoryData();
@@ -422,13 +423,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                data1.getBatchNum().equals(data2.getBatchNum()) &&
                data1.getReportTime().equals(data2.getReportTime());
     }
-    
-    @Override
-    public void initialize(ETLConfig config) {
-        super.initialize(config);
-        log.info("재고 정보 ETL 엔진 초기화 완료");
-    }
-    
+
     @Override
     public boolean isHealthy() {
         return super.isHealthy();

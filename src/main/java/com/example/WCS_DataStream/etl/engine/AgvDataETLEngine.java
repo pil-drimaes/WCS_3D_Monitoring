@@ -10,19 +10,15 @@ import com.example.WCS_DataStream.etl.service.KafkaProducerService;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-// WebSocket 관련 import 제거
 import org.springframework.stereotype.Component;
 
-import java.math.BigDecimal;
+
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * AGV 데이터 ETL 엔진
@@ -35,36 +31,24 @@ import java.util.concurrent.atomic.AtomicReference;
  * 3. Load: 처리된 데이터를 Kafka와 PostgreSQL에 적재
  * 
  * @author AGV Monitoring System
- * @version 2.0
+ * @version 1.0
  */
 @Component
 public class AgvDataETLEngine extends ETLEngine<AgvData> {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataETLEngine.class);
     
-    /**
-     * AGV 데이터 서비스
-     */
+
     private final AgvDataService agvDataService;
-    
-    /**
-     * Kafka Producer 서비스
-     */
     private final KafkaProducerService kafkaProducerService;
-    
-    /**
-     * PostgreSQL 데이터 서비스
-     */
     private final PostgreSQLDataService postgreSQLDataService;
     
-    /**
-     * 생성자
-     * 
-     * @param agvDataService AGV 데이터 서비스
-     * @param kafkaProducerService Kafka Producer 서비스
-     * @param postgreSQLDataService PostgreSQL 데이터 서비스
-     */
-    @Autowired
+    // 마지막 실행 시간 추적
+    private final AtomicLong lastExecutionTime = new AtomicLong(0);
+
+    // 중복 데이터 필터링을 위한 캐시 (uuid_no -> report_time)
+    private final ConcurrentHashMap<String, Long> processedDataCache = new ConcurrentHashMap<>();
+
     public AgvDataETLEngine(AgvDataService agvDataService,
                            KafkaProducerService kafkaProducerService,
                            PostgreSQLDataService postgreSQLDataService) {
@@ -72,85 +56,327 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
         this.kafkaProducerService = kafkaProducerService;
         this.postgreSQLDataService = postgreSQLDataService;
     }
-    
+
     @Override
-    public void initialize(ETLConfig config) {
-        this.config = config;
-        
-        // PostgreSQL 연결 상태 확인
-        if (!postgreSQLDataService.isConnected()) {
-            log.error("PostgreSQL 연결 실패. ETL 엔진 초기화 중단.");
-            status.set(EngineStatus.ERROR);
-            return;
-        }
-        
-        // PostgreSQL 테이블 존재 확인
-        if (!postgreSQLDataService.isTableExists()) {
-            log.error("PostgreSQL robot_info 테이블이 존재하지 않음. ETL 엔진 초기화 중단.");
-            status.set(EngineStatus.ERROR);
-            return;
-        }
-        
-        status.set(EngineStatus.RUNNING);
-        log.info("AgvDataETLEngine initialized successfully with PostgreSQL connection verified");
+    protected boolean checkTableExists() {
+        return postgreSQLDataService.isAgvTableExists();
     }
-    
-    @Override
-    public List<AgvData> executeETL() throws ETLEngineException {
-        long startTime = System.currentTimeMillis();
-        List<AgvData> processedData = new ArrayList<>();
-        
-        try {
-            status.set(EngineStatus.RUNNING);
+
+    /**
+     * ETL 프로세스 실행 (DataETLEngine 인터페이스 구현)
+     * 
+     * @return 처리된 AGV 데이터 리스트
+     * @throws ETLEngineException ETL 처리 중 오류 발생 시
+     */
+
+     
+     @Override
+     public List<AgvData> executeETL() throws ETLEngineException {
+         try {
+             // checkTableExists() 메서드 사용
+             if (!checkTableExists()) {
+                 log.error("PostgreSQL robot_info 테이블이 존재하지 않음. ETL 엔진 중단.");
+                 throw new ETLEngineException("PostgreSQL robot_info 테이블이 존재하지 않음");
+             } 
+            // 모든 데이터를 가져와서 중복 필터링만 수행 
+            List<AgvData> allData = agvDataService.getAllAgvData();
+            log.debug("추출된 AGV 데이터 {}개", allData.size());
             
-            // 설정이 없으면 기본 설정으로 초기화
-            if (config == null) {
-                log.info("ETL config is null, initializing with default configuration");
-                initializeWithDefaultConfig();
+            if (allData.isEmpty()) {
+                log.debug("처리할 AGV 데이터가 없습니다");
+                return new ArrayList<>();
             }
-            
-            // 1. Extract: 새로운 데이터 추출
-            log.debug("Starting ETL process - Extract phase");
-            List<AgvData> extractedData = extractData();
-            
-            if (extractedData.isEmpty()) {
-                log.debug("No new data to process");
-                return processedData;
+
+            // 중복 데이터 필터링
+            List<AgvData> filteredData = filterDuplicateData(allData);
+            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
+
+            if (filteredData.isEmpty()) {
+                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
+                return new ArrayList<>();
             }
-            
-            // 2. Transform: 데이터 변환 및 검증
-            log.debug("Starting ETL process - Transform phase");
-            List<AgvData> transformedData = transformData(extractedData);
-            
-            // 3. Load: 데이터 적재
-            log.debug("Starting ETL process - Load phase");
-            processedData = loadData(transformedData);
-            
-            // 통계 업데이트
-            updateStatistics(extractedData.size(), processedData.size(), startTime);
-            
-            lastExecutionTime.set(System.currentTimeMillis());
-            
-            log.info("ETL process completed: {} records processed", processedData.size());
+
+            // Transform & Load: 데이터 변환 및 저장
+            return processETLInternal(filteredData);
             
         } catch (Exception e) {
-            status.set(EngineStatus.ERROR);
-            statistics.setErrorCount(statistics.getErrorCount() + 1);
-            
-            log.error("Error in ETL process: {}", e.getMessage(), e);
-            
-            // 오류 처리 모드에 따른 처리
-            handleError(e);
+            throw new ETLEngineException("AGV 데이터 ETL 처리 중 오류 발생", e);
         }
-        
-        return processedData;
+    }
+
+    /**
+     * ETL 프로세스 실행 (내부 구현 - 시간 기반)
+     * 
+     * @param lastProcessedTime 마지막 처리 시간
+     * @return 처리된 AGV 데이터 리스트
+     */
+    private List<AgvData> processETLInternal(LocalDateTime lastProcessedTime) {
+        log.debug("AGV 데이터 ETL 프로세스 시작 - Extract 단계");
+
+        try {
+            // Extract: WCS DB에서 데이터 추출
+            List<AgvData> allData = agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
+            log.debug("추출된 AGV 데이터 {}개", allData.size());
+            
+            if (allData.isEmpty()) {
+                log.debug("처리할 새로운 AGV 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // 중복 데이터 필터링
+            List<AgvData> filteredData = filterDuplicateData(allData);
+            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
+            
+            if (filteredData.isEmpty()) {
+                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // Transform: 데이터 변환 (필요시)
+            List<AgvData> transformedData = transformData(filteredData);
+            
+            // Load: PostgreSQL에 데이터 저장
+            int savedCount = agvDataService.saveAgvDataBatch(transformedData);
+            log.info("AGV 데이터 ETL 완료: {}개 중 {}개 저장", transformedData.size(), savedCount);
+            
+            // Kafka 메시지 발행
+            publishToKafka(transformedData);
+            
+            // 마지막 실행 시간 업데이트
+            lastExecutionTime.set(System.currentTimeMillis());
+            
+            // 통계 업데이트
+            updateStatistics(allData.size(), transformedData.size(), System.currentTimeMillis());
+            
+            return transformedData;
+            
+        } catch (Exception e) {
+            log.error("AGV 데이터 ETL 처리 중 오류 발생", e);
+            throw new RuntimeException("AGV 데이터 ETL 처리 중 오류 발생", e);
+        }
     }
     
+    /**
+    * ETL 프로세스 실행 (내부 구현 - 데이터 기반)
+    * 
+    * @param filteredData 이미 필터링된 데이터
+    * @return 처리된 AGV 데이터 리스트
+    */
+    private List<AgvData> processETLInternal(List<AgvData> filteredData) {
+        log.debug("AGV 데이터 ETL 프로세스 시작 - Transform & Load 단계");
+        
+        try {
+            if (filteredData.isEmpty()) {
+                log.debug("처리할 데이터가 없습니다");
+                return new ArrayList<>();
+            }
+            
+            // Transform: 데이터 변환 (필요시)
+            List<AgvData> transformedData = transformData(filteredData);
+            
+            // Load: PostgreSQL에 데이터 저장
+            int savedCount = agvDataService.saveAgvDataBatch(transformedData);
+            log.info("AGV 데이터 ETL 완료: {}개 중 {}개 저장", transformedData.size(), savedCount);
+            
+            // Kafka 메시지 발행
+            publishToKafka(transformedData);
+            
+            // 마지막 실행 시간 업데이트
+            lastExecutionTime.set(System.currentTimeMillis());
+            
+            // 통계 업데이트
+            updateStatistics(filteredData.size(), transformedData.size(), System.currentTimeMillis());
+            
+            return transformedData;
+            
+        } catch (Exception e) {
+            log.error("AGV 데이터 ETL 처리 중 오류 발생", e);
+            throw new RuntimeException("AGV 데이터 ETL 처리 중 오류 발생", e);
+        }
+    }
+
+    /**
+     * ETL 프로세스 실행 (기존 메서드 - 호환성 유지)
+     * 
+     * @param lastProcessedTime 마지막 처리 시간
+     * @return 처리된 AGV 데이터 리스트
+     */
+    public int processETL(LocalDateTime lastProcessedTime) {
+        List<AgvData> result = processETLInternal(lastProcessedTime);
+        return result.size();
+    }
+
+    /**
+     * 중복 데이터 필터링 (PostgreSQL 기반 + 캐시 기반)
+     * 
+     * @param allData 모든 데이터
+     * @return 중복이 제거된 데이터
+     */
+    private List<AgvData> filterDuplicateData(List<AgvData> allData) {
+        return allData.stream()
+            .filter(data -> {
+                if (data.getUuidNo() == null || data.getReportTime() == null) {
+                    return true; // UUID나 report_time이 없으면 처리
+                }
+                
+                // 1. PostgreSQL에서 이미 존재하는지 확인
+                try {
+                    boolean existsInPostgres = postgreSQLDataService.isAgvDataExists(data.getUuidNo(), data.getReportTime());
+                    if (existsInPostgres) {
+                        log.debug("PostgreSQL에 이미 존재하는 AGV 데이터 제외: uuid={}, report_time={}", 
+                                 data.getUuidNo(), data.getReportTime());
+                    return false;
+                    }
+                } catch (Exception e) {
+                    log.warn("PostgreSQL 중복 체크 실패, 캐시 기반으로 처리: uuid={}, error={}", 
+                             data.getUuidNo(), e.getMessage());
+                }
+
+                // 2. 캐시 기반 중복 체크 (백업)
+                String key = data.getUuidNo();
+                Long cachedTime = processedDataCache.get(key);
+                
+                if (cachedTime == null) {
+                    // 새로운 데이터인 경우
+                    processedDataCache.put(key, data.getReportTime());
+                    log.debug("새로운 AGV 데이터 감지: uuid={}, report_time={}", key, data.getReportTime());
+                    return true;
+                }
+                
+                if (data.getReportTime() > cachedTime) {
+                    // report_time이 더 최신인 경우 (업데이트된 데이터)
+                    processedDataCache.put(key, data.getReportTime());
+                    log.debug("업데이트된 AGV 데이터 감지: uuid={}, old_time={}, new_time={}", 
+                             key, cachedTime, data.getReportTime());
+                    return true;
+                }
+
+            // report_time이 같은 경우 중복으로 처리
+                log.debug("중복 AGV 데이터 제외: uuid={}, cached_time={}, data_time={}", 
+                            key, cachedTime, data.getReportTime());
+                return false;
+            })
+            .toList();
+    }
+
+    /**
+     * 데이터 변환 (Transform)
+     * 
+     * @param agvDataList 원본 데이터 리스트
+     * @return 변환된 데이터 리스트
+     */
+    private List<AgvData> transformData(List<AgvData> agvDataList) {
+        // UUID가 없는 경우에만 생성 (원본 UUID 유지)
+        agvDataList.forEach(data -> {
+            if (data.getUuidNo() == null || data.getUuidNo().isEmpty()) {
+                data.setUuidNo(UUID.randomUUID().toString());
+            }
+            
+            // report_time이 없는 경우 현재 시간으로 설정
+            if (data.getReportTime() == null) {
+                data.setReportTime(System.currentTimeMillis());
+            }
+        });
+        
+        return agvDataList;
+    }
+
+    /**
+     * Kafka로 메시지 발행
+     * 
+     * @param agvDataList 발행할 데이터 리스트
+     */
+    private void publishToKafka(List<AgvData> agvDataList) {
+        try {
+            for (AgvData agvData : agvDataList) {
+                String message = String.format(
+                    "AGV 데이터 업데이트: robot_no=%s, status=%d, battery=%s, speed=%s, pos_x=%s, pos_y=%s",
+                    agvData.getRobotNo(), agvData.getStatus(), agvData.getBattery(), agvData.getSpeed(), 
+                    agvData.getPosX(), agvData.getPosY()
+                );
+                
+                kafkaProducerService.sendMessage("agv-updates", message);
+            }
+            
+            log.debug("AGV 데이터 Kafka 메시지 {}개 발행 완료", agvDataList.size());
+            
+        } catch (Exception e) {
+            log.error("Kafka 메시지 발행 실패: {}", e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 최신 타임스탬프 조회
+     * 
+     * @return 최신 타임스탬프
+     */
+    public LocalDateTime getLatestTimestamp() {
+        try {
+            LocalDateTime latest = agvDataService.getLatestTimestamp();
+            if (latest == null) {
+                log.info("AGV 데이터 ETL 엔진 첫 실행: 1년 전부터 모든 데이터 처리");
+                return LocalDateTime.now().minusYears(1);
+            }
+            return latest;
+        } catch (Exception e) {
+            log.warn("최신 타임스탬프 조회 실패, 1년 전으로 설정: {}", e.getMessage());
+            return LocalDateTime.now().minusYears(1);
+        }
+    }
+    
+    /**
+     * 마지막 실행 시간 조회
+     * 
+     * @return 마지막 실행 시간
+     */
+    public long getLastExecutionTime() {
+        return lastExecutionTime.get();
+    }
+    
+    /**
+     * 캐시 초기화 (메모리 관리용)
+     */
+    public void clearCache() {
+        processedDataCache.clear();
+        log.info("AGV 데이터 ETL 엔진 캐시 초기화 완료");
+    }
+    
+    /**
+     * 강제 캐시 리셋 (테스트용)
+     */
+    public void resetCache() {
+        processedDataCache.clear();
+        lastExecutionTime.set(0);
+        log.info("AGV 데이터 ETL 엔진 캐시 강제 리셋 완료");
+    }
+    
+    /**
+     * 중복 데이터 확인
+     */
+    private boolean isDuplicateData(AgvData data) {
+        String key = getDataKey(data); 
+        Long cachedTime = processedDataCache.get(key);
+        
+        if (cachedTime == null) {
+            processedDataCache.put(key, data.getReportTime());
+            return false;
+        }
+        
+        if (data.getReportTime() > cachedTime) {
+            processedDataCache.put(key, data.getReportTime());
+            return false;
+        }
+        
+        return true;
+    }
+
+    // ETLEngine 추상 메서드 구현
+
     @Override
     protected List<AgvData> extractData() throws ETLEngineException {
         try {
-            // AGV 데이터 서비스에서 직접 데이터 추출
-            List<AgvData> data = agvDataService.getAllAgvData();
+            LocalDateTime lastProcessedTime = getLatestTimestamp();
+            List<AgvData> data = agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
             log.debug("Extracted {} records from AGV data service", data.size());
             return data;
         } catch (Exception e) {
@@ -158,372 +384,59 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
             throw new ETLEngineException("Error during data extraction", e);
         }
     }
-    
-    /**
-     * 중복 데이터 필터링
-     */
-    private List<AgvData> filterDuplicateData(List<AgvData> data) {
-        // PostgreSQL에 이미 저장된 데이터인지 확인
-        return data.stream()
-            .filter(agvData -> {
-                try {
-                    // UUID와 report_time으로 중복 체크
-                    String dataId = agvData.getUuidNo() + "_" + agvData.getReportTime();
-                    
-                    // PostgreSQL에서 해당 데이터가 이미 존재하는지 확인
-                    boolean exists = postgreSQLDataService.isAgvDataExists(agvData.getUuidNo(), agvData.getReportTime());
-                    
-                    if (exists) {
-                        log.debug("Duplicate data filtered out: {}", dataId);
-                        return false;
-                    }
-                    
-                    return true;
-                } catch (Exception e) {
-                    log.warn("Error checking duplicate data: {}", e.getMessage());
-                    return true; // 오류 발생 시 처리하도록 함
-                }
-            })
-            .toList();
-    }
 
-    /**
-     * 데이터 변환 (Transform)
-     */
-    private List<AgvData> transformData(List<AgvData> data) throws ETLEngineException {
-        List<AgvData> transformedData = new ArrayList<>();
-        
-        for (AgvData agvData : data) {
-            try {
-                // 데이터 검증
-                if (config.isValidationEnabled() && !isValidData(agvData)) {
-                    log.warn("Invalid data detected, skipping: {}", agvData);
-                    statistics.setSkippedRecords(statistics.getSkippedRecords() + 1);
+    @Override
+    protected List<AgvData> transformAndLoad(List<AgvData> data) throws ETLEngineException {
+        try {
+            // 데이터 변환 및 적재
+            List<AgvData> processedData = new ArrayList<>();
+            
+            for (AgvData agvData : data) {
+                // 중복 데이터 필터링
+                if (isDuplicateData(agvData)) {
                     continue;
                 }
                 
-                // 데이터 변환
-                if (config.isTransformationEnabled()) {
-                    agvData = transformAgvData(agvData);
-                }
-                
-                transformedData.add(agvData);
-                statistics.setSuccessfulRecords(statistics.getSuccessfulRecords() + 1);
-                
-            } catch (Exception e) {
-                log.error("Error transforming data: {}", e.getMessage());
-                statistics.setFailedRecords(statistics.getFailedRecords() + 1);
-                
-                if (config.getErrorHandlingMode() == ETLConfig.ErrorHandlingMode.STOP) {
-                    throw new ETLEngineException("Error during data transformation", e);
-                }
-            }
-        }
-        
-        log.debug("Transformed {} records", transformedData.size());
-        return transformedData;
-    }
-    
-    /**
-     * 데이터 적재 (Load) - 즉시 처리
-     * 
-     * 처리된 데이터를 PostgreSQL에 즉시 저장하고 Kafka로 전송
-     * 실시간성을 위해 PostgreSQL을 우선적으로 처리
-     */
-    private List<AgvData> loadData(List<AgvData> data) throws ETLEngineException {
-        try {
-            if (data == null || data.isEmpty()) {
-                log.debug("No data to load");
-                return data;
-            }
-            
-            // 중복 데이터 필터링
-            List<AgvData> filteredData = filterDuplicateData(data);
-            
-            if (filteredData.isEmpty()) {
-                log.debug("No new data to load after duplicate filtering");
-                return filteredData;
-            }
-            
-            log.info("Loading {} records to PostgreSQL and Kafka (immediate processing)", filteredData.size());
-            
-            int kafkaSuccessCount = 0;
-            int postgresSuccessCount = 0;
-            
-            // PostgreSQL 우선 처리 (실시간성 보장)
-            for (AgvData agvData : filteredData) {
-                try {
-                    // PostgreSQL에 데이터 즉시 저장 (우선순위)
-                    boolean postgresSuccess = postgreSQLDataService.saveAgvData(agvData);
-                    if (postgresSuccess) {
-                        postgresSuccessCount++;
-                        log.debug("PostgreSQL saved: robot_no={}", agvData.getRobotNo());
-                    } else {
-                        log.warn("PostgreSQL save failed: robot_no={}", agvData.getRobotNo());
-                    }
-                    
-                    // Kafka에 데이터 전송 (비동기)
-                    boolean kafkaSuccess = kafkaProducerService.sendAgvData(agvData);
-                    if (kafkaSuccess) {
-                        kafkaSuccessCount++;
-                    }
-                    
-                } catch (Exception e) {
-                    log.error("Error loading data for robot_no={}: {}", agvData.getRobotNo(), e.getMessage(), e);
+                // PostgreSQL에 저장
+                boolean saved = agvDataService.saveAgvData(agvData);
+                if (saved) {
+                    processedData.add(agvData);
+                    // Kafka로 전송
+                    publishToKafka(List.of(agvData));
                 }
             }
             
-            log.info("Data loading completed: PostgreSQL={}/{}, Kafka={}/{}", 
-                postgresSuccessCount, filteredData.size(), kafkaSuccessCount, filteredData.size());
-            
-            // ETL 상태를 Kafka로 전송
-            try {
-                kafkaProducerService.sendETLStatus(
-                    "batch-" + System.currentTimeMillis(),
-                    filteredData.size(),
-                    postgresSuccessCount,
-                    filteredData.size() - postgresSuccessCount,
-                    System.currentTimeMillis() - lastExecutionTime.get(),
-                    "COMPLETED"
-                );
-            } catch (Exception e) {
-                log.error("Error sending ETL status to Kafka: {}", e.getMessage(), e);
-            }
-            
-            // WebSocket으로 즉시 실시간 업데이트 전송 (비활성화)
-            try {
-                Map<String, Object> updateEvent = new HashMap<>();
-                updateEvent.put("type", "ETL_UPDATE");
-                updateEvent.put("timestamp", System.currentTimeMillis());
-                updateEvent.put("processedCount", filteredData.size());
-                updateEvent.put("kafkaSuccessCount", kafkaSuccessCount);
-                updateEvent.put("postgresSuccessCount", postgresSuccessCount);
-                updateEvent.put("data", filteredData);
-                
-                // WebSocket 기능 비활성화
-                // messagingTemplate.convertAndSend("/topic/agv-updates", updateEvent);
-                log.debug("WebSocket update disabled, data processed: {} records", filteredData.size());
-            } catch (Exception e) {
-                log.debug("WebSocket update skipped: {}", e.getMessage());
-            }
-            
-            return filteredData;
+            return processedData;
             
         } catch (Exception e) {
-            log.error("Error during data loading: {}", e.getMessage(), e);
-            throw new ETLEngineException("Error during data loading", e);
+            log.error("Error during transform and load: {}", e.getMessage(), e);
+            throw new ETLEngineException("Error during transform and load", e);
         }
     }
-    
-    /**
-     * 데이터 검증
-     */
-    private boolean isValidData(AgvData agvData) {
-        if (agvData == null) {
-            log.debug("Data validation failed: agvData is null");
-            return false;
-        }
-        
-        // 기본 필수 필드만 검사
-        if (agvData.getRobotNo() == null || agvData.getRobotNo().trim().isEmpty()) {
-            log.debug("Data validation failed: robotNo is null or empty");
-            return false;
-        }
-        
-        // 로봇 번호 형식 검사
-        if (!agvData.getRobotNo().startsWith("ROBOT_")) {
-            log.debug("Data validation failed: invalid robotNo format {} (should start with ROBOT_)", agvData.getRobotNo());
-            return false;
-        }
-        
-        // 상태 검사 (null 허용, 있으면 1-10 범위)
-        if (agvData.getStatus() != null && (agvData.getStatus() < 1 || agvData.getStatus() > 10)) {
-            log.debug("Data validation failed: invalid status {} for robot {}", agvData.getStatus(), agvData.getRobotNo());
-            return false;
-        }
-        
-        // 배터리 검사 (NULL 허용, 있으면 0-100 범위)
-        if (agvData.getBattery() != null) {
-            if (agvData.getBattery().compareTo(BigDecimal.ZERO) < 0 || 
-                agvData.getBattery().compareTo(BigDecimal.valueOf(100)) > 0) {
-                log.debug("Data validation failed: invalid battery {} for robot {}", agvData.getBattery(), agvData.getRobotNo());
-                return false;
-            }
-        }
-        
-        // 속도 검사 (NULL 허용, 있으면 0-50 범위)
-        if (agvData.getSpeed() != null) {
-            if (agvData.getSpeed().compareTo(BigDecimal.ZERO) < 0 || 
-                agvData.getSpeed().compareTo(BigDecimal.valueOf(50)) > 0) {
-                log.debug("Data validation failed: invalid speed {} for robot {}", agvData.getSpeed(), agvData.getRobotNo());
-                return false;
-            }
-        }
-        
-        // 좌표 검사 (NULL 허용, 있으면 합리적인 범위)
-        if (agvData.getPosX() != null) {
-            if (agvData.getPosX().compareTo(BigDecimal.valueOf(-10000)) < 0 || 
-                agvData.getPosX().compareTo(BigDecimal.valueOf(10000)) > 0) {
-                log.debug("Data validation failed: invalid posX {} for robot {}", agvData.getPosX(), agvData.getRobotNo());
-                return false;
-            }
-        }
-        
-        if (agvData.getPosY() != null) {
-            if (agvData.getPosY().compareTo(BigDecimal.valueOf(-10000)) < 0 || 
-                agvData.getPosY().compareTo(BigDecimal.valueOf(10000)) > 0) {
-                log.debug("Data validation failed: invalid posY {} for robot {}", agvData.getPosY(), agvData.getRobotNo());
-                return false;
-            }
-        }
-        
-        log.debug("Data validation passed for robot: {}", agvData.getRobotNo());
-        return true;
-    }
-    
-    /**
-     * AGV 데이터 변환
-     */
-    private AgvData transformAgvData(AgvData agvData) {
-        // UUID가 없는 경우에만 생성 (원본 UUID 유지)
-        if (agvData.getUuidNo() == null || agvData.getUuidNo().isEmpty()) {
-            agvData.setUuidNo(UUID.randomUUID().toString());
-        }
-        
-        // 좌표 정밀도 조정 (소수점 4자리)
-        if (agvData.getPosX() != null) {
-            agvData.setPosX(agvData.getPosX().setScale(4, BigDecimal.ROUND_HALF_UP));
-        }
-        if (agvData.getPosY() != null) {
-            agvData.setPosY(agvData.getPosY().setScale(4, BigDecimal.ROUND_HALF_UP));
-        }
-        
-        // 배터리 정밀도 조정 (소수점 4자리)
-        if (agvData.getBattery() != null) {
-            agvData.setBattery(agvData.getBattery().setScale(4, BigDecimal.ROUND_HALF_UP));
-        }
-        
-        // 속도 정밀도 조정 (소수점 4자리)
-        if (agvData.getSpeed() != null) {
-            agvData.setSpeed(agvData.getSpeed().setScale(4, BigDecimal.ROUND_HALF_UP));
-        }
-        
-        return agvData;
-    }
-    
-    /**
-     * 통계 업데이트
-     */
-    protected void updateStatistics(int extractedCount, int processedCount, long startTime) {
-        long executionTime = System.currentTimeMillis() - startTime;
-        
-        statistics.setTotalProcessedRecords(statistics.getTotalProcessedRecords() + extractedCount);
-        statistics.setTotalExecutionTime(statistics.getTotalExecutionTime() + executionTime);
-        
-        // 평균 처리 시간 계산
-        if (statistics.getTotalProcessedRecords() > 0) {
-            statistics.setAverageProcessingTime(
-                (double) statistics.getTotalExecutionTime() / statistics.getTotalProcessedRecords()
-            );
-        }
-        
-        statistics.setLastExecutionTime(LocalDateTime.now());
-    }
-    
-    /**
-     * 오류 처리
-     */
-    private void handleError(Exception e) throws ETLEngineException {
-        switch (config.getErrorHandlingMode()) {
-            case CONTINUE:
-                log.warn("Continuing despite error: {}", e.getMessage());
-                break;
-            case STOP:
-                throw new ETLEngineException("ETL process stopped due to error", e);
-            case RETRY:
-                handleRetry(e);
-                break;
-        }
-    }
-    
-    /**
-     * 재시도 처리
-     */
-    private void handleRetry(Exception e) throws ETLEngineException {
-        int currentRetries = 0;
-        while (currentRetries < config.getRetryCount()) {
-            try {
-                log.info("Retrying ETL process (attempt {}/{})", currentRetries + 1, config.getRetryCount());
-                Thread.sleep(config.getRetryInterval().toMillis());
-                
-                // 재시도 실행
-                executeETL();
-                return;
-                
-            } catch (InterruptedException ie) {
-                Thread.currentThread().interrupt();
-                throw new ETLEngineException("ETL retry interrupted", ie);
-            } catch (Exception retryException) {
-                currentRetries++;
-                statistics.setRetryCount(statistics.getRetryCount() + 1);
-                log.error("Retry attempt {} failed: {}", currentRetries, retryException.getMessage());
-            }
-        }
-        
-        throw new ETLEngineException("ETL process failed after " + config.getRetryCount() + " retries", e);
-    }
-    
-    @Override
-    protected List<AgvData> transformAndLoad(List<AgvData> data) throws ETLEngineException {
-        return transformData(data);
-    }
-    
+
     @Override
     public boolean isConnected() {
-        return postgreSQLDataService.isConnected();
+        return agvDataService.isConnected();
     }
-    
+
     @Override
     protected String getDataKey(AgvData data) {
-        return data.getRobotNo();
+        return data.getUuidNo();
     }
-    
+
     @Override
     protected boolean isSameData(AgvData data1, AgvData data2) {
-        return data1.getRobotNo().equals(data2.getRobotNo()) &&
-               data1.getTimestamp().equals(data2.getTimestamp());
+        return data1.getUuidNo().equals(data2.getUuidNo()) &&
+               data1.getReportTime().equals(data2.getReportTime());
     }
-    
+
     @Override
     public boolean isHealthy() {
-        return status.get() == EngineStatus.RUNNING && isConnected();
+        return super.isHealthy();
     }
-    
-    @Override
-    public long getLastExecutionTime() {
-        return lastExecutionTime.get();
-    }
-    
+
     @Override
     public ETLStatistics getStatistics() {
-        return statistics;
+        return super.getStatistics();
     }
-    
-    /**
-     * 기본 설정으로 ETL 엔진 초기화
-     */
-    private void initializeWithDefaultConfig() {
-        // 기본 ETL 설정 생성
-        ETLConfig defaultConfig = new ETLConfig();
-        defaultConfig.setValidationEnabled(true);
-        defaultConfig.setTransformationEnabled(true);
-        defaultConfig.setErrorHandlingMode(ETLConfig.ErrorHandlingMode.CONTINUE);
-        
-        // 기본 풀링 설정 (0.1초 주기 - 실시간 데이터 감지)
-        defaultConfig.setPullInterval(java.time.Duration.ofMillis(100)); // 0.1초 (100ms)
-        defaultConfig.setBatchSize(100);
-        
-        // 초기화 실행
-        initialize(defaultConfig);
-    }
-} 
+}

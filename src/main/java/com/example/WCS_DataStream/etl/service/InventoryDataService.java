@@ -108,34 +108,6 @@ public class InventoryDataService {
         }
     }
     
-    /**
-     * WCS DB에서 최신 재고 데이터 10개를 조회
-     * 
-     * @return 최신 재고 데이터 10개 리스트
-     */
-    public List<InventoryInfo> getLatestInventoryData() {
-        String sql = """
-            SELECT TOP 10 uuid_no, inventory, batch_num, unitload, sku, pre_qty, new_qty, 
-                   origin_order, status, report_time
-            FROM inventory_info 
-            ORDER BY report_time DESC
-            """;
-        
-        return wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
-            InventoryInfo inventoryInfo = new InventoryInfo();
-            inventoryInfo.setUuidNo(rs.getString("uuid_no"));
-            inventoryInfo.setInventory(rs.getString("inventory"));
-            inventoryInfo.setBatchNum(rs.getString("batch_num"));
-            inventoryInfo.setUnitload(rs.getString("unitload"));
-            inventoryInfo.setSku(rs.getString("sku"));
-            inventoryInfo.setPreQty(rs.getInt("pre_qty"));
-            inventoryInfo.setNewQty(rs.getInt("new_qty"));
-            inventoryInfo.setOriginOrder(rs.getString("origin_order"));
-            inventoryInfo.setStatus(rs.getInt("status"));
-            inventoryInfo.setReportTime(rs.getLong("report_time"));
-            return inventoryInfo;
-        });
-    }
     
     /**
      * 특정 시간 이후의 재고 데이터를 조회

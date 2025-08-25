@@ -3,10 +3,12 @@ package com.example.WCS_DataStream.etl.service;
 import com.example.WCS_DataStream.etl.model.AgvData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import jakarta.annotation.PostConstruct;
 import java.time.LocalDateTime;
@@ -26,10 +28,9 @@ public class AgvDataService {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataService.class);
     
-    /**
-     * 독립적인 JdbcTemplate
-     */
-    private JdbcTemplate jdbcTemplate;
+    private JdbcTemplate wcsJdbcTemplate;
+    private final JdbcTemplate postgresqlJdbcTemplate;
+    private final PostgreSQLDataService postgresqlDataService;
     
     /**
      * 데이터베이스 연결 설정
@@ -45,6 +46,12 @@ public class AgvDataService {
     
     @Value("${etl.database.driver:com.microsoft.sqlserver.jdbc.SQLServerDriver}")
     private String driverClassName;
+
+    public AgvDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate,
+                          PostgreSQLDataService postgresqlDataService) {
+        this.postgresqlJdbcTemplate = postgresqlJdbcTemplate;
+        this.postgresqlDataService = postgresqlDataService;
+    }
     
     /**
      * 초기화
@@ -58,7 +65,7 @@ public class AgvDataService {
             dataSource.setUsername(username);
             dataSource.setPassword(password);
             
-            this.jdbcTemplate = new JdbcTemplate(dataSource);
+            this.wcsJdbcTemplate = new JdbcTemplate(dataSource);
             
             // 연결 테스트
             if (isConnected()) {
@@ -86,7 +93,7 @@ public class AgvDataService {
                 ORDER BY report_time DESC
                 """;
             
-            return jdbcTemplate.query(sql, (rs, rowNum) -> {
+            List<AgvData> result = wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
                 AgvData agvData = new AgvData();
                 agvData.setUuidNo(rs.getString("uuid_no"));
                 agvData.setRobotNo(rs.getString("robot_no"));
@@ -106,52 +113,16 @@ public class AgvDataService {
                 agvData.setPodId(rs.getString("pod_id"));
                 return agvData;
             });
+
+            log.debug("WCS DB에서 AGV 데이터 {}개 조회 완료", result.size());
+            return result;
+            
         } catch (Exception e) {
-            log.error("Error getting all AGV data: {}", e.getMessage(), e);
+            log.error("WCS DB에서 AGV 데이터 조회 실패: {}", e.getMessage(), e);
             return List.of();
         }
     }
     
-    /**
-     * 최신 AGV 데이터 10개를 조회
-     * 
-     * @return 최신 AGV 데이터 10개 리스트
-     */
-    public List<AgvData> getLatestAgvData() {
-        try {
-            String sql = """
-                SELECT TOP 10 uuid_no, robot_no, map_code, zone_code, status, manual, 
-                       loaders, report_time, battery, node_id, pos_x, pos_y, 
-                       speed, task_id, next_target, pod_id
-                FROM robot_info 
-                ORDER BY report_time DESC
-                """;
-            
-            return jdbcTemplate.query(sql, (rs, rowNum) -> {
-                AgvData agvData = new AgvData();
-                agvData.setUuidNo(rs.getString("uuid_no"));
-                agvData.setRobotNo(rs.getString("robot_no"));
-                agvData.setMapCode(rs.getString("map_code"));
-                agvData.setZoneCode(rs.getString("zone_code"));
-                agvData.setStatus(rs.getInt("status"));
-                agvData.setManual(rs.getBoolean("manual"));
-                agvData.setLoaders(rs.getString("loaders"));
-                agvData.setReportTime(rs.getLong("report_time"));
-                agvData.setBattery(rs.getBigDecimal("battery"));
-                agvData.setNodeId(rs.getString("node_id"));
-                agvData.setPosX(rs.getBigDecimal("pos_x"));
-                agvData.setPosY(rs.getBigDecimal("pos_y"));
-                agvData.setSpeed(rs.getBigDecimal("speed"));
-                agvData.setTaskId(rs.getString("task_id"));
-                agvData.setNextTarget(rs.getString("next_target"));
-                agvData.setPodId(rs.getString("pod_id"));
-                return agvData;
-            });
-        } catch (Exception e) {
-            log.error("Error getting latest AGV data: {}", e.getMessage(), e);
-            return List.of();
-        }
-    }
     
     /**
      * 특정 시간 이후의 AGV 데이터를 조회
@@ -160,7 +131,6 @@ public class AgvDataService {
      * @return 해당 시간 이후의 AGV 데이터 리스트
      */
     public List<AgvData> getAgvDataAfterTimestamp(LocalDateTime timestamp) {
-        try {
             // LocalDateTime을 시스템 기본 시간대의 Unix timestamp로 변환
             long timestampMillis = timestamp.atZone(java.time.ZoneId.systemDefault()).toInstant().toEpochMilli();
             
@@ -175,7 +145,7 @@ public class AgvDataService {
                 ORDER BY report_time DESC
                 """;
             
-            List<AgvData> result = jdbcTemplate.query(sql, (rs, rowNum) -> {
+            return wcsJdbcTemplate.query(sql, (rs, rowNum) -> {
                 AgvData agvData = new AgvData();
                 
                 agvData.setUuidNo(rs.getString("uuid_no"));
@@ -196,15 +166,31 @@ public class AgvDataService {
                 agvData.setPodId(rs.getString("pod_id"));
                 return agvData;
             }, timestampMillis);
-            
-            log.debug("Found {} AGV data records after timestamp {}", result.size(), timestamp);
-            return result;
-        } catch (Exception e) {
-            log.error("Error getting AGV data after timestamp: {}", e.getMessage(), e);
-            return List.of();
         }
+
+    /**
+     * PostgreSQL에 AGV 데이터 저장
+     * 
+     * @param agvData 저장할 AGV 데이터
+     * @return 저장 성공 여부
+     */
+    @Transactional(transactionManager = "postgresqlTransactionManager")
+    public boolean saveAgvData(AgvData agvData) {
+        return postgresqlDataService.saveAgvData(agvData);
     }
-    
+
+    /**
+     * 배치로 AGV 데이터 저장
+     * 
+     * @param agvDataList 저장할 AGV 데이터 리스트
+     * @return 성공적으로 저장된 레코드 수
+     */
+    @Transactional(transactionManager = "postgresqlTransactionManager")
+    public int saveAgvDataBatch(List<AgvData> agvDataList) {
+        return postgresqlDataService.saveAgvDataBatch(agvDataList);
+    }
+
+
     /**
      * 최신 타임스탬프 조회
      * 
@@ -214,15 +200,16 @@ public class AgvDataService {
         try {
             String sql = "SELECT MAX(report_time) as LatestTime FROM robot_info";
             
-            return jdbcTemplate.queryForObject(sql, (rs, rowNum) -> {
-                Long timestamp = rs.getLong("LatestTime");
-                return timestamp != null ? 
-                    LocalDateTime.ofEpochSecond(timestamp / 1000, 0, java.time.ZoneOffset.UTC) : 
-                    LocalDateTime.now();
-            });
+            Long timestamp = wcsJdbcTemplate.queryForObject(sql, Long.class);
+            if (timestamp != null) {
+                return LocalDateTime.ofEpochSecond(timestamp / 1000, 0, java.time.ZoneOffset.UTC);
+            } else {
+                log.info("AGV 데이터가 없어 1년 전부터 처리하도록 설정");
+                return LocalDateTime.now().minusYears(1);
+            }
         } catch (Exception e) {
-            log.error("Error getting latest timestamp: {}", e.getMessage(), e);
-            return LocalDateTime.now();
+            log.error("AGV 데이터 최신 타임스탬프 조회 실패: {}", e.getMessage(), e);
+            return LocalDateTime.now().minusYears(1);
         }
     }
     
@@ -233,41 +220,11 @@ public class AgvDataService {
      */
     public boolean isConnected() {
         try {
-            if (jdbcTemplate == null) {
-                return false;
-            }
-            
-            // 간단한 쿼리로 연결 테스트
-            jdbcTemplate.queryForObject("SELECT 1", Integer.class);
+            wcsJdbcTemplate.queryForObject("SELECT 1", Integer.class);
             return true;
         } catch (Exception e) {
-            log.error("Database connection test failed: {}", e.getMessage());
+            log.error("WCS Database connection test failed: {}", e.getMessage());
             return false;
-        }
-    }
-    
-    /**
-     * 테이블 구조 조회
-     * 
-     * @return 테이블 구조 정보
-     */
-    public List<java.util.Map<String, Object>> getTableStructure() {
-        try {
-            String sql = """
-                SELECT 
-                    COLUMN_NAME,
-                    DATA_TYPE,
-                    IS_NULLABLE,
-                    COLUMN_DEFAULT
-                FROM INFORMATION_SCHEMA.COLUMNS 
-                WHERE TABLE_NAME = 'robot_info'
-                ORDER BY ORDINAL_POSITION
-                """;
-            
-            return jdbcTemplate.queryForList(sql);
-        } catch (Exception e) {
-            log.error("Error getting table structure: {}", e.getMessage(), e);
-            return List.of();
         }
     }
 } 

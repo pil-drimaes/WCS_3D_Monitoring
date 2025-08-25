@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Collections;
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 
 /**
  * POD 정보 ETL 스케줄러
@@ -40,7 +41,8 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
     private boolean initialDataProcessed = false;
     
     @Autowired
-    public PodDataScheduler(PodDataETLEngine etlEngine) {
+    public PodDataScheduler(PodDataETLEngine etlEngine, PostgreSQLDataService postgreSQLDataService) {
+        super(postgreSQLDataService);  // 부모 생성자 호출
         this.etlEngine = etlEngine;
     }
     

@@ -3,6 +3,8 @@ package com.example.WCS_DataStream.etl.engine;
 import com.example.WCS_DataStream.etl.ETLEngineException;
 import com.example.WCS_DataStream.etl.ETLStatistics;
 import com.example.WCS_DataStream.etl.config.ETLConfig;
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +42,23 @@ public abstract class ETLEngine<T> {
     
     // 마지막 전체 동기화 시간
     protected final AtomicLong lastFullSyncTime = new AtomicLong(0);
+
+    protected volatile boolean tableExists = false;
+
+    // PostgreSQL 데이터 서비스 (공통)
+    protected PostgreSQLDataService postgreSQLDataService;
+
+    /**
+     * 테이블 존재 여부 확인 (공통 메서드)
+     */
+    protected abstract boolean checkTableExists();
+    
+    /**
+     * 테이블 존재 여부 조회
+     */
+    public boolean isTableExists() {
+        return tableExists;
+    }
     
     /**
      * 엔진 상태 열거형
@@ -56,6 +75,7 @@ public abstract class ETLEngine<T> {
      */
     public List<T> executeETL() throws ETLEngineException {
         try {
+            
             long startTime = System.currentTimeMillis();
             status.set(EngineStatus.RUNNING);
             
@@ -112,18 +132,34 @@ public abstract class ETLEngine<T> {
     /**
      * ETL 엔진 초기화
      */
-    public void initialize(ETLConfig config) {
+    public void initialize(ETLConfig config, PostgreSQLDataService postgreSQLDataService) {
         this.config = config;
+        this.postgreSQLDataService = postgreSQLDataService;
         
-        if (!isConnected()) {
-            log.error("Database is not connected. ETL engine initialization failed.");
+        try {
+            // 공통: PostgreSQL 연결 상태 확인
+            if (!postgreSQLDataService.isConnected()) {
+                log.error("PostgreSQL is not connected. ETL engine initialization failed.");
+                status.set(EngineStatus.ERROR);
+                return;
+            }
+            
+            // 공통: 테이블 존재 여부 확인
+            this.tableExists = checkTableExists();
+            if (!this.tableExists) {
+                log.error("Required table does not exist. ETL engine initialization failed.");
+                status.set(EngineStatus.ERROR);
+                return;
+            }
+            
+            status.set(EngineStatus.STOPPED);
+            log.info("ETL engine initialized successfully with config: {}", config);
+        } catch (Exception e) {
+            log.error("Error initializing ETL engine: {}", e.getMessage(), e);
             status.set(EngineStatus.ERROR);
-            return;
         }
-        
-        status.set(EngineStatus.STOPPED);
-        log.info("ETL engine initialized successfully with config: {}", config);
     }
+    
     
     /**
      * ETL 엔진 상태 확인

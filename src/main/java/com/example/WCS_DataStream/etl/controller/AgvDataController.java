@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -106,51 +107,9 @@ public class AgvDataController {
         }
     }
     
-    /**
-     * WCS DB에서 최신 AGV 데이터 조회
-     * 
-     * @return 최신 AGV 데이터
-     */
-    @GetMapping("/wcs/data/latest")
-    public ResponseEntity<List<AgvData>> getLatestWcsData() {
-        try {
-            List<AgvData> data = wcsService.getLatestAgvData();
-            return ResponseEntity.ok(data);
-        } catch (Exception e) {
-            log.error("Error getting latest WCS data: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
+
     
-    /**
-     * WCS DB 연결 상태 확인
-     * 
-     * @return WCS DB 연결 상태
-     */
-    @GetMapping("/wcs/status")
-    public ResponseEntity<Map<String, Object>> getWcsStatus() {
-        Map<String, Object> status = new HashMap<>();
-        
-        try {
-            boolean connected = wcsService.isConnected();
-            status.put("connected", connected);
-            status.put("message", connected ? "WCS DB 연결됨" : "WCS DB 연결 실패");
-            
-            if (connected) {
-                // 연결된 경우 간단한 테스트 쿼리 실행
-                List<AgvData> testData = wcsService.getLatestAgvData();
-                status.put("recordCount", testData.size());
-                status.put("lastUpdate", testData.isEmpty() ? null : testData.get(0).getTimestamp());
-            }
-            
-            return ResponseEntity.ok(status);
-        } catch (Exception e) {
-            log.error("Error checking WCS status: {}", e.getMessage(), e);
-            status.put("connected", false);
-            status.put("message", "WCS DB 연결 확인 중 오류: " + e.getMessage());
-            return ResponseEntity.ok(status);
-        }
-    }
+    
     
     /**
      * WCS DB 연결 테스트
@@ -177,38 +136,7 @@ public class AgvDataController {
         }
     }
     
-    /**
-     * PostgreSQL 연결 상태 테스트
-     * 
-     * @return PostgreSQL 연결 테스트 결과
-     */
-    @GetMapping("/postgresql/test")
-    public ResponseEntity<Map<String, Object>> testPostgreSQLConnection() {
-        Map<String, Object> response = new HashMap<>();
-        
-        try {
-            boolean isConnected = postgreSQLDataService.isConnected();
-            boolean tableExists = postgreSQLDataService.isTableExists();
-            
-            response.put("connected", isConnected);
-            response.put("tableExists", tableExists);
-            response.put("timestamp", System.currentTimeMillis());
-            
-            if (isConnected && tableExists) {
-                response.put("message", "PostgreSQL 연결 및 테이블 상태 정상");
-                return ResponseEntity.ok(response);
-            } else {
-                response.put("message", "PostgreSQL 연결 또는 테이블 문제");
-                return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(response);
-            }
-        } catch (Exception e) {
-            response.put("connected", false);
-            response.put("tableExists", false);
-            response.put("error", e.getMessage());
-            response.put("timestamp", System.currentTimeMillis());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-        }
-    }
+ 
     
     /**
      * ETL 엔진 수동 실행
