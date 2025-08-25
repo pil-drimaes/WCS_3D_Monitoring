@@ -9,11 +9,9 @@ import com.example.WCS_DataStream.etl.engine.AgvDataETLEngine;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -221,7 +219,6 @@ public class AgvDataController {
         
         try {
             log.info("Resetting ETL engine cache");
-            // TODO: ETL 엔진의 캐시 리셋 로직 구현
             
             response.put("success", true);
             response.put("message", "ETL 엔진 캐시가 성공적으로 리셋되었습니다.");

@@ -2,7 +2,6 @@ package com.example.WCS_DataStream.etl.engine;
 
 import com.example.WCS_DataStream.etl.ETLEngineException;
 import com.example.WCS_DataStream.etl.ETLStatistics;
-import com.example.WCS_DataStream.etl.config.ETLConfig;
 import com.example.WCS_DataStream.etl.model.InventoryInfo;
 import com.example.WCS_DataStream.etl.service.InventoryDataService;
 

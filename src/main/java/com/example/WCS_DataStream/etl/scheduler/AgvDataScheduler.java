@@ -1,6 +1,5 @@
 package com.example.WCS_DataStream.etl.scheduler;
 
-import com.example.WCS_DataStream.etl.config.ETLConfig;
 import com.example.WCS_DataStream.etl.engine.AgvDataETLEngine;
 import com.example.WCS_DataStream.etl.engine.ETLEngine;
 import com.example.WCS_DataStream.etl.model.AgvData;
@@ -9,7 +8,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
-import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Set;
 import java.util.HashSet;

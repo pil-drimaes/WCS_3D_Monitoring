@@ -35,7 +35,7 @@ public class AgvDataService {
     @Autowired
     public AgvDataService(@Qualifier("wcsJdbcTemplate") JdbcTemplate wcsJdbcTemplate,
                           PostgreSQLDataService postgresqlDataService) {
-        this.wcsJdbcTemplate = wcsJdbcTemplate;  // 주입받음
+        this.wcsJdbcTemplate = wcsJdbcTemplate;  
         this.postgresqlDataService = postgresqlDataService;
     }
     
