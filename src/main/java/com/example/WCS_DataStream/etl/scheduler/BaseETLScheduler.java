@@ -2,6 +2,8 @@ package com.example.WCS_DataStream.etl.scheduler;
 
 import com.example.WCS_DataStream.etl.config.ETLConfig;
 import com.example.WCS_DataStream.etl.engine.ETLEngine;
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -26,6 +28,12 @@ public abstract class BaseETLScheduler<T> {
      * 초기화 완료 여부
      */
     protected boolean initialized = false;
+
+    protected PostgreSQLDataService postgreSQLDataService;
+
+    protected BaseETLScheduler(PostgreSQLDataService postgreSQLDataService) {
+        this.postgreSQLDataService = postgreSQLDataService;
+    }
     
     /**
      * 마지막 처리 시간 (중복 처리 방지용)
@@ -69,8 +77,7 @@ public abstract class BaseETLScheduler<T> {
             }
             
             ETLConfig config = createDefaultConfig();
-            getETLEngine().initialize(config);
-            
+            getETLEngine().initialize(config, postgreSQLDataService);            
             initialized = true;
             log.info("{} ETL 엔진 초기화 완료", getSchedulerName());
             

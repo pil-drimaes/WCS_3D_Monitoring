@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.Collections;
+import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 
 /**
  * AGV 데이터 ETL 스케줄러
@@ -56,7 +57,8 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
      * @param etlEngine ETL 엔진
      */
     @Autowired
-    public AgvDataScheduler(AgvDataETLEngine etlEngine) {
+    public AgvDataScheduler(AgvDataETLEngine etlEngine, PostgreSQLDataService postgreSQLDataService) {
+        super(postgreSQLDataService);  // 부모 생성자 호출
         this.etlEngine = etlEngine;
     }
     

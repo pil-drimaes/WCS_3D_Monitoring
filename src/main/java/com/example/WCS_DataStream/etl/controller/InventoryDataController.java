@@ -52,23 +52,7 @@ public class InventoryDataController {
             return ResponseEntity.internalServerError().build();
         }
     }
-    
-    /**
-     * 최신 재고 데이터 조회
-     * 
-     * @return 최신 재고 데이터 리스트
-     */
-    @GetMapping("/latest")
-    public ResponseEntity<List<InventoryInfo>> getLatestInventoryData() {
-        try {
-            List<InventoryInfo> inventoryDataList = inventoryDataService.getLatestInventoryData();
-            log.info("최신 재고 데이터 조회 완료: {}개", inventoryDataList.size());
-            return ResponseEntity.ok(inventoryDataList);
-        } catch (Exception e) {
-            log.error("최신 재고 데이터 조회 실패: {}", e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
+
     
     /**
      * 특정 시간 이후의 재고 데이터 조회

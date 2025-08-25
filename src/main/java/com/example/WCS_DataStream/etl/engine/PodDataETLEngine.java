@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicLong;
  * @author AGV Monitoring System
  * @version 2.0
  */
+
 @Component
 public class PodDataETLEngine extends ETLEngine<PodInfo> {
     
@@ -55,18 +56,17 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
      * @throws ETLEngineException ETL 처리 중 오류 발생 시
      */
     @Override
+    protected boolean checkTableExists() {
+        return postgreSQLDataService.isPodTableExists();
+    }
+    @Override
     public List<PodInfo> executeETL() throws ETLEngineException {
         try {
             // PostgreSQL 연결 상태 및 테이블 존재 확인
-            if (!postgreSQLDataService.isConnected()) {
-                log.error("PostgreSQL 연결 실패. ETL 엔진 중단.");
-                throw new ETLEngineException("PostgreSQL 연결 실패");
-            }
-            
-            if (!postgreSQLDataService.isPodTableExists()) {
+            if (!checkTableExists()) {
                 log.error("PostgreSQL pod_info 테이블이 존재하지 않음. ETL 엔진 중단.");
                 throw new ETLEngineException("PostgreSQL pod_info 테이블이 존재하지 않음");
-            }
+            } 
             
             // 모든 데이터를 가져와서 중복 필터링만 수행 (AgvDataETLEngine과 동일한 방식)
             List<PodInfo> allData = podDataService.getAllPodData();
@@ -350,7 +350,7 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
             List<PodInfo> filteredData = filterDuplicateData(transformedData);
             
             // PostgreSQL에 저장
-            int savedCount = podDataService.savePodDataBatch(filteredData);
+            podDataService.savePodDataBatch(filteredData);
             
             // Kafka로 전송
             publishToKafka(filteredData);

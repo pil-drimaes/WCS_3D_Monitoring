@@ -173,22 +173,6 @@ public class AgvData {
         this.podId = podId;
     }
     
-    // 호환성을 위한 레거시 메서드들
-    @Deprecated
-    public String getAgvId() { return robotNo; }
-    @Deprecated
-    public void setAgvId(String agvId) { this.robotNo = agvId; }
-    
-    @Deprecated
-    public Double getX() { return posX != null ? posX.doubleValue() : null; }
-    @Deprecated
-    public void setX(Double x) { this.posX = x != null ? BigDecimal.valueOf(x) : null; }
-    
-    @Deprecated
-    public Double getY() { return posY != null ? posY.doubleValue() : null; }
-    @Deprecated
-    public void setY(Double y) { this.posY = y != null ? BigDecimal.valueOf(y) : null; }
-    
     @Deprecated
     public LocalDateTime getTimestamp() { 
         // reportTime을 직접 사용 (이미 올바른 밀리초 타임스탬프)
@@ -199,17 +183,4 @@ public class AgvData {
     public void setTimestamp(LocalDateTime timestamp) { 
         this.reportTime = timestamp != null ? timestamp.toEpochSecond(java.time.ZoneOffset.UTC) * 1000 : null; 
     }
-    
-    @Deprecated
-    public String getDescription() { 
-        return String.format("Robot: %s, Status: %d, Battery: %s%%, Task: %s", 
-            robotNo, status, battery, taskId); 
-    }
-    @Deprecated
-    public void setDescription(String description) { /* 레거시 호환성만 제공 */ }
-    
-    @Deprecated
-    public Long getId() { return null; } // UUID 기반이므로 ID는 사용하지 않음
-    @Deprecated
-    public void setId(Long id) { /* 레거시 호환성만 제공 */ }
 } 

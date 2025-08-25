@@ -245,68 +245,7 @@ public class PostgreSQLDataService {
         }
     }
     
-    /**
-     * robot_info 테이블 존재 여부 확인
-     * 
-     * @return 테이블 존재 여부
-     */
-    public boolean isTableExists() {
-        try {
-            if (!isConnected()) {
-                log.error("PostgreSQL 연결이 없어 테이블 존재 여부를 확인할 수 없음");
-                return false;
-            }
-            
-            String sql = """
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'robot_info'
-                )
-                """;
-            
-            Boolean exists = postgresqlJdbcTemplate.queryForObject(sql, Boolean.class);
-            boolean tableExists = exists != null && exists;
-            
-            if (tableExists) {
-                log.info("PostgreSQL robot_info 테이블이 존재함");
-            } else {
-                log.warn("PostgreSQL robot_info 테이블이 존재하지 않음");
-            }
-            
-            return tableExists;
-            
-        } catch (Exception e) {
-            log.error("PostgreSQL 테이블 존재 여부 확인 실패: {}", e.getMessage(), e);
-            return false;
-        }
-    }
 
-    /**
-     * robot_info 테이블의 레코드 수 조회
-     * 
-     * @return 레코드 수
-     */
-    public int getRobotInfoCount() {
-        try {
-            if (!isConnected()) {
-                log.error("PostgreSQL 연결이 없어 레코드 수를 조회할 수 없음");
-                return 0;
-            }
-            
-            String sql = "SELECT COUNT(*) FROM robot_info";
-            Integer count = postgresqlJdbcTemplate.queryForObject(sql, Integer.class);
-            
-            int recordCount = count != null ? count : 0;
-            log.debug("PostgreSQL robot_info 테이블 레코드 수: {}", recordCount);
-            
-            return recordCount;
-            
-        } catch (Exception e) {
-            log.error("PostgreSQL 레코드 수 조회 실패: {}", e.getMessage(), e);
-            return 0;
-        }
-    }
     
     /**
      * AGV 데이터 중복 체크
@@ -577,6 +516,42 @@ public class PostgreSQLDataService {
     }
 
     /**
+     * agv_info 테이블 존재 여부
+     * @return 테이블 존재 여부
+     */
+    public boolean isAgvTableExists() {
+        try {
+            if (!isConnected()) {
+                log.error("PostgreSQL 연결이 없어 테이블 존재 여부를 확인할 수 없음");
+                return false;
+            }
+            
+            String sql = """
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'robot_info'
+                )
+                """;
+            
+            Boolean exists = postgresqlJdbcTemplate.queryForObject(sql, Boolean.class);
+            boolean tableExists = exists != null && exists;
+            
+            if (tableExists) {
+                log.info("PostgreSQL robot_info 테이블이 존재함");
+            } else {
+                log.warn("PostgreSQL robot_info 테이블이 존재하지 않음");
+            }
+            
+            return tableExists;
+            
+        } catch (Exception e) {
+            log.error("PostgreSQL robot_info 테이블 존재 여부 확인 실패: {}", e.getMessage(), e);
+            return false;
+        }
+    }
+
+    /**
      * pod_info 테이블 존재 여부 확인
      * 
      * @return 테이블 존재 여부
@@ -647,6 +622,32 @@ public class PostgreSQLDataService {
         } catch (Exception e) {
             log.error("PostgreSQL inventory_info 테이블 존재 여부 확인 실패: {}", e.getMessage(), e);
             return false;
+        }
+    }
+
+    /**
+     * robot_info 테이블의 레코드 수 조회
+     * 
+     * @return 레코드 수
+     */
+    public int getRobotInfoCount() {
+        try {
+            if (!isConnected()) {
+                log.error("PostgreSQL 연결이 없어 레코드 수를 조회할 수 없음");
+                return 0;
+            }
+            
+            String sql = "SELECT COUNT(*) FROM robot_info";
+            Integer count = postgresqlJdbcTemplate.queryForObject(sql, Integer.class);
+            
+            int recordCount = count != null ? count : 0;
+            log.debug("PostgreSQL robot_info 테이블 레코드 수: {}", recordCount);
+            
+            return recordCount;
+            
+        } catch (Exception e) {
+            log.error("PostgreSQL 레코드 수 조회 실패: {}", e.getMessage(), e);
+            return 0;
         }
     }
     
