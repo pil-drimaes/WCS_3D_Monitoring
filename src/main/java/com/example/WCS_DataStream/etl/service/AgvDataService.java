@@ -3,6 +3,7 @@ package com.example.WCS_DataStream.etl.service;
 import com.example.WCS_DataStream.etl.model.AgvData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -28,54 +29,14 @@ public class AgvDataService {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataService.class);
     
-    private JdbcTemplate wcsJdbcTemplate;
-    private final JdbcTemplate postgresqlJdbcTemplate;
-    private final PostgreSQLDataService postgresqlDataService;
+    private final JdbcTemplate wcsJdbcTemplate;
+    private PostgreSQLDataService postgresqlDataService;
     
-    /**
-     * 데이터베이스 연결 설정
-     */
-    @Value("${etl.database.url:jdbc:sqlserver://localhost:1433;databaseName=cdc_test;encrypt=true;trustServerCertificate=true}")
-    private String databaseUrl;
-    
-    @Value("${etl.database.username:sa}")
-    private String username;
-    
-    @Value("${etl.database.password:nice2025!}")
-    private String password;
-    
-    @Value("${etl.database.driver:com.microsoft.sqlserver.jdbc.SQLServerDriver}")
-    private String driverClassName;
-
-    public AgvDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate,
+    @Autowired
+    public AgvDataService(@Qualifier("wcsJdbcTemplate") JdbcTemplate wcsJdbcTemplate,
                           PostgreSQLDataService postgresqlDataService) {
-        this.postgresqlJdbcTemplate = postgresqlJdbcTemplate;
+        this.wcsJdbcTemplate = wcsJdbcTemplate;  // 주입받음
         this.postgresqlDataService = postgresqlDataService;
-    }
-    
-    /**
-     * 초기화
-     */
-    @PostConstruct
-    public void initialize() {
-        try {
-            DriverManagerDataSource dataSource = new DriverManagerDataSource();
-            dataSource.setDriverClassName(driverClassName);
-            dataSource.setUrl(databaseUrl);
-            dataSource.setUsername(username);
-            dataSource.setPassword(password);
-            
-            this.wcsJdbcTemplate = new JdbcTemplate(dataSource);
-            
-            // 연결 테스트
-            if (isConnected()) {
-                log.info("IndependentWcsService initialized successfully");
-            } else {
-                log.error("Failed to connect to WCS database");
-            }
-        } catch (Exception e) {
-            log.error("Error initializing IndependentWcsService: {}", e.getMessage(), e);
-        }
     }
     
     /**

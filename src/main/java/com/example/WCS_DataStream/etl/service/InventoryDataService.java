@@ -3,6 +3,7 @@ package com.example.WCS_DataStream.etl.service;
 import com.example.WCS_DataStream.etl.model.InventoryInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -27,48 +28,16 @@ public class InventoryDataService {
     
     private static final Logger log = LoggerFactory.getLogger(InventoryDataService.class);
     
-    private JdbcTemplate wcsJdbcTemplate;
-    private final JdbcTemplate postgresqlJdbcTemplate;
-    private final PostgreSQLDataService postgresqlDataService;
+    private final JdbcTemplate wcsJdbcTemplate;
+    private PostgreSQLDataService postgresqlDataService;
     
-    @Value("${etl.database.url:jdbc:sqlserver://localhost:1433;databaseName=cdc_test;encrypt=true;trustServerCertificate=true}")
-    private String databaseUrl;
-    
-    @Value("${etl.database.username:sa}")
-    private String username;
-    
-    @Value("${etl.database.password:nice2025!}")
-    private String password;
-    
-    @Value("${etl.database.driver:com.microsoft.sqlserver.jdbc.SQLServerDriver}")
-    private String driverClassName;
-    
-    public InventoryDataService(@Qualifier("postgresqlJdbcTemplate") JdbcTemplate postgresqlJdbcTemplate,
-                               PostgreSQLDataService postgresqlDataService) {
-        this.postgresqlJdbcTemplate = postgresqlJdbcTemplate;
+    @Autowired
+    public InventoryDataService(@Qualifier("wcsJdbcTemplate") JdbcTemplate wcsJdbcTemplate,
+                                PostgreSQLDataService postgresqlDataService) {
+        this.wcsJdbcTemplate = wcsJdbcTemplate;
         this.postgresqlDataService = postgresqlDataService;
     }
-    
-    /**
-     * 데이터베이스 연결 초기화
-     */
-    @PostConstruct
-    public void initialize() {
-        try {
-            DriverManagerDataSource dataSource = new DriverManagerDataSource();
-            dataSource.setDriverClassName(driverClassName);
-            dataSource.setUrl(databaseUrl);
-            dataSource.setUsername(username);
-            dataSource.setPassword(password);
-            
-            this.wcsJdbcTemplate = new JdbcTemplate(dataSource);
-            
-            log.info("재고 정보 서비스 데이터베이스 연결 초기화 완료: {}", databaseUrl);
-            
-        } catch (Exception e) {
-            log.error("재고 정보 서비스 데이터베이스 연결 초기화 실패: {}", e.getMessage(), e);
-        }
-    }
+        
     
     /**
      * WCS DB에서 모든 재고 데이터를 조회
