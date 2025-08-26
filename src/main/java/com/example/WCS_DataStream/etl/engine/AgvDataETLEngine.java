@@ -71,37 +71,22 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
      
      @Override
      public List<AgvData> executeETL() throws ETLEngineException {
+         return super.executeETL(); // 
+     }
+     
+     // 초기 1회 전체 처리
+     public List<AgvData> executeFullLoad() throws ETLEngineException {
          try {
-             // checkTableExists() 메서드 사용
              if (!checkTableExists()) {
-                 log.error("PostgreSQL robot_info 테이블이 존재하지 않음. ETL 엔진 중단.");
                  throw new ETLEngineException("PostgreSQL robot_info 테이블이 존재하지 않음");
-             } 
-            // 모든 데이터를 가져와서 중복 필터링만 수행 
-            List<AgvData> allData = agvDataService.getAllAgvData();
-            log.debug("추출된 AGV 데이터 {}개", allData.size());
-            
-            if (allData.isEmpty()) {
-                log.debug("처리할 AGV 데이터가 없습니다");
-                return new ArrayList<>();
-            }
-
-            // 중복 데이터 필터링
-            List<AgvData> filteredData = filterDuplicateData(allData);
-            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
-
-            if (filteredData.isEmpty()) {
-                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
-                return new ArrayList<>();
-            }
-
-            // Transform & Load: 데이터 변환 및 저장
-            return processETLInternal(filteredData);
-            
-        } catch (Exception e) {
-            throw new ETLEngineException("AGV 데이터 ETL 처리 중 오류 발생", e);
-        }
-    }
+             }
+             List<AgvData> allData = agvDataService.getAllAgvData();
+             List<AgvData> filtered = filterDuplicateData(allData);
+             return processETLInternal(filtered);
+         } catch (Exception e) {
+             throw new ETLEngineException("AGV 전체 로드 중 오류", e);
+         }
+     }
 
     /**
      * ETL 프로세스 실행 (내부 구현 - 시간 기반)
@@ -349,37 +334,19 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
         log.info("AGV 데이터 ETL 엔진 캐시 강제 리셋 완료");
     }
     
-    /**
-     * 중복 데이터 확인
-     */
-    private boolean isDuplicateData(AgvData data) {
-        String key = getDataKey(data); 
-        Long cachedTime = processedDataCache.get(key);
-        
-        if (cachedTime == null) {
-            processedDataCache.put(key, data.getReportTime());
-            return false;
-        }
-        
-        if (data.getReportTime() > cachedTime) {
-            processedDataCache.put(key, data.getReportTime());
-            return false;
-        }
-        
-        return true;
-    }
+
 
     // ETLEngine 추상 메서드 구현
 
     @Override
     protected List<AgvData> extractData() throws ETLEngineException {
         try {
-            LocalDateTime lastProcessedTime = getLatestTimestamp();
-            List<AgvData> data = agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
-            log.debug("Extracted {} records from AGV data service", data.size());
-            return data;
+            long wm = postgreSQLDataService.getRobotLastProcessedTime();
+            long wmQuery = wm <= 0 ? 0 : wm + 1;
+            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wmQuery)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
+            return agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
         } catch (Exception e) {
-            log.error("Error during data extraction: {}", e.getMessage(), e);
             throw new ETLEngineException("Error during data extraction", e);
         }
     }
@@ -387,28 +354,12 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     @Override
     protected List<AgvData> transformAndLoad(List<AgvData> data) throws ETLEngineException {
         try {
-            // 데이터 변환 및 적재
-            List<AgvData> processedData = new ArrayList<>();
-            
-            for (AgvData agvData : data) {
-                // 중복 데이터 필터링
-                if (isDuplicateData(agvData)) {
-                    continue;
-                }
-                
-                // PostgreSQL에 저장
-                boolean saved = agvDataService.saveAgvData(agvData);
-                if (saved) {
-                    processedData.add(agvData);
-                    // Kafka로 전송
-                    publishToKafka(List.of(agvData));
-                }
-            }
-            
-            return processedData;
-            
+            List<AgvData> transformed = transformData(data);
+            List<AgvData> filtered = filterDuplicateData(transformed); 
+            agvDataService.saveAgvDataBatch(filtered);
+            publishToKafka(filtered);
+            return filtered;
         } catch (Exception e) {
-            log.error("Error during transform and load: {}", e.getMessage(), e);
             throw new ETLEngineException("Error during transform and load", e);
         }
     }

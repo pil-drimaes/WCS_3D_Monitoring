@@ -64,36 +64,19 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
      */
     @Override
     public List<InventoryInfo> executeETL() throws ETLEngineException {
+        return super.executeETL();
+    }
+
+    public List<InventoryInfo> executeFullLoad() throws ETLEngineException {
         try {
-            // PostgreSQL 연결 상태 및 테이블 존재 확인
             if (!checkTableExists()) {
-                log.error("PostgreSQL inventory_info 테이블이 존재하지 않음. ETL 엔진 중단.");
                 throw new ETLEngineException("PostgreSQL inventory_info 테이블이 존재하지 않음");
-            } 
-            
-            // 모든 데이터를 가져와서 중복 필터링만 수행 (AgvDataETLEngine과 동일한 방식)
+            }
             List<InventoryInfo> allData = inventoryDataService.getAllInventoryData();
-            log.debug("추출된 재고 데이터 {}개", allData.size());
-            
-            if (allData.isEmpty()) {
-                log.debug("처리할 재고 데이터가 없습니다");
-                return new ArrayList<>();
-            }
-            
-            // 중복 데이터 필터링
-            List<InventoryInfo> filteredData = filterDuplicateData(allData);
-            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
-            
-            if (filteredData.isEmpty()) {
-                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
-                return new ArrayList<>();
-            }
-            
-            // Transform & Load: 데이터 변환 및 저장
-            return processETLInternal(filteredData);
-            
+            List<InventoryInfo> filtered = filterDuplicateData(allData);
+            return processETLInternal(filtered);
         } catch (Exception e) {
-            throw new ETLEngineException("재고 정보 ETL 처리 중 오류 발생", e);
+            throw new ETLEngineException("재고 전체 로드 중 오류", e);
         }
     }
     
@@ -368,12 +351,12 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     @Override
     protected List<InventoryInfo> extractData() throws ETLEngineException {
         try {
-            LocalDateTime lastProcessedTime = getLatestTimestamp();
-            List<InventoryInfo> data = inventoryDataService.getInventoryDataAfterTimestamp(lastProcessedTime);
-            log.debug("Extracted {} records from inventory data service", data.size());
-            return data;
+            long wm = postgreSQLDataService.getInventoryLastProcessedTime();
+            long wmQuery = wm <= 0 ? 0 : wm + 1;
+            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wmQuery)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
+            return inventoryDataService.getInventoryDataAfterTimestamp(lastProcessedTime);
         } catch (Exception e) {
-            log.error("Error during data extraction: {}", e.getMessage(), e);
             throw new ETLEngineException("Error during data extraction", e);
         }
     }
@@ -381,27 +364,12 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     @Override
     protected List<InventoryInfo> transformAndLoad(List<InventoryInfo> data) throws ETLEngineException {
         try {
-            // 데이터 변환 및 적재
-            List<InventoryInfo> processedData = new ArrayList<>();
-            
-            for (InventoryInfo inventoryInfo : data) {
-                // 중복 데이터 필터링
-                if (isDuplicateData(inventoryInfo)) {
-                    continue;
-                }
-                
-                // PostgreSQL에 저장
-                boolean saved = inventoryDataService.saveInventoryData(inventoryInfo);
-                if (saved) {
-                    processedData.add(inventoryInfo);
-                    // Kafka로 전송
-                    publishToKafka(List.of(inventoryInfo));
-                }
-            }
-            
-            return processedData;
+            List<InventoryInfo> transformed = transformData(data);
+            List<InventoryInfo> filtered = filterDuplicateData(transformed); 
+            inventoryDataService.saveInventoryDataBatch(filtered);
+            publishToKafka(filtered);
+            return filtered;
         } catch (Exception e) {
-            log.error("Error during transform and load: {}", e.getMessage(), e);
             throw new ETLEngineException("Error during transform and load", e);
         }
     }
@@ -413,7 +381,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     
     @Override
     protected String getDataKey(InventoryInfo data) {
-        return data.getInventory() + "_" + data.getBatchNum();
+        return data.getUuidNo();
     }
     
     @Override

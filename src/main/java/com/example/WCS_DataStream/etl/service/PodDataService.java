@@ -109,7 +109,7 @@ public class PodDataService {
         String sql = """
             SELECT uuid_no, pod_id, pod_face, location, report_time
             FROM pod_info 
-            WHERE report_time > ? 
+            WHERE report_time >= ? 
             ORDER BY report_time DESC
             """;
         
@@ -159,7 +159,9 @@ public class PodDataService {
             
             Long timestamp = wcsJdbcTemplate.queryForObject(sql, Long.class);
             if (timestamp != null) {
-                return LocalDateTime.ofEpochSecond(timestamp / 1000, 0, java.time.ZoneOffset.UTC);
+                return java.time.Instant.ofEpochMilli(timestamp)
+                .atZone(java.time.ZoneId.systemDefault())
+                .toLocalDateTime();
             } else {
                 // 데이터가 없으면 1년 전 시간 반환 (AGV와 동일)
                 log.info("POD 데이터가 없어 1년 전부터 처리하도록 설정");

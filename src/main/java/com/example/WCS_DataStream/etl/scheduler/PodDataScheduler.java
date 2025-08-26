@@ -61,61 +61,36 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
      */
     @Override
     protected void processInitialData() {
-        if (initialDataProcessed) {
-            return;
-        }
-        
+        if (initialDataProcessed) return;
         try {
-            log.info("POD 정보 초기 데이터 처리 시작");
-            
-            // ETL 엔진을 통해 초기 데이터 처리 (AgvDataScheduler와 동일한 방식)
-            List<PodInfo> initialData = etlEngine.executeETL();
-            
-            // 처리된 데이터 ID를 캐시에 저장
-            for (PodInfo podInfo : initialData) {
-                String dataId = podInfo.getUuidNo() + "_" + podInfo.getReportTime();
-                processedIds.add(dataId);
+            List<PodInfo> initialData = etlEngine.executeFullLoad(); // 변경
+            for (PodInfo d : initialData) {
+                processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
             }
-            
             initialDataProcessed = true;
-            log.info("POD 정보 초기 데이터 처리 완료: {}개 레코드", initialData.size());
-            
         } catch (Exception e) {
-            log.error("POD 정보 초기 데이터 처리 중 오류 발생: {}", e.getMessage(), e);
+            log.error("POD 초기 데이터 처리 오류: {}", e.getMessage(), e);
         }
     }
-    
-    /**
-     * 증분 데이터 처리 (변경된 데이터만)
-     */
+
     @Override
     protected void processIncrementalData() {
         try {
-            // ETL 프로세스 실행
-            List<PodInfo> processedData = etlEngine.executeETL();
-            
-            // 중복 처리 방지: 새로운 데이터만 처리
+            List<PodInfo> processedData = etlEngine.executeETL(); // 변경: 증분
             int newDataCount = 0;
-            for (PodInfo podInfo : processedData) {
-                String dataId = podInfo.getUuidNo() + "_" + podInfo.getReportTime();
-                if (!processedIds.contains(dataId)) {
-                    processedIds.add(dataId);
+            for (PodInfo d : processedData) {
+                String id = d.getUuidNo() + "_" + d.getReportTime();
+                if (!processedIds.contains(id)) {
+                    processedIds.add(id);
                     newDataCount++;
                 }
             }
-            
-            // 처리된 데이터 수 제한 (메모리 관리)
-            if (processedIds.size() > 10000) {
-                processedIds.clear();
-                log.info("Cleared processed IDs cache for memory management");
-            }
-            
+            if (processedIds.size() > 10000) processedIds.clear();
             if (newDataCount > 0) {
-                log.info("Processed {} new POD data records through ETL engine (total: {})", newDataCount, processedData.size());
+                log.info("Processed {} new POD data records", newDataCount);
             }
-            
         } catch (Exception e) {
-            log.error("POD 정보 증분 데이터 처리 중 오류 발생: {}", e.getMessage(), e);
+            log.error("POD 증분 데이터 처리 오류: {}", e.getMessage(), e);
         }
     }
     

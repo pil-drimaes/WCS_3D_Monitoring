@@ -1,199 +1,180 @@
-# CDC Queue - Change Data Capture System
+# WCS DataStream - ETL 시스템
 
-MSSQL에서 PostgreSQL로 실시간 데이터 동기화를 수행하는 Change Data Capture (CDC) 시스템입니다.
+## 프로젝트 개요
 
-## 🚀 주요 기능
+WCS(Warehouse Control System) 데이터를 실시간으로 추출, 변환, 적재하는 ETL 시스템입니다. 기존 CDC 시스템과 완전히 분리된 독립적인 ETL 엔진으로 구성되어 있습니다.
 
-### **실시간 데이터 동기화**
-- **Robot 데이터**: 0.1초마다 실시간 감지 및 동기화 ✅
-- **Inventory 데이터**: 3초마다 재고 정보 동기화
-- **Pod 데이터**: 3초마다 POD 정보 동기화
+## 주요 기능
 
-### **하이브리드 풀링 엔진**
-- 조건부 쿼리와 주기적 전체 동기화를 결합한 효율적인 데이터 변경 감지
-- 10분마다 전체 동기화 수행으로 데이터 무결성 보장
+### 📊 ETL 엔진
+- **AGV 데이터 ETL**: 로봇 정보 실시간 처리
+- **재고 데이터 ETL**: 재고 정보 실시간 처리  
+- **POD 데이터 ETL**: POD 정보 실시간 처리
+- **중복 데이터 필터링**: PostgreSQL + 캐시 기반 중복 방지
+- **변화 감지**: `isSame` 함수를 통한 데이터 변화 감지
 
-### **자동 중복 필터링**
-- `report_time` 기반의 스마트한 중복 데이터 필터링
-- 새로운 데이터와 업데이트된 데이터만 처리
+### 📊 데이터 처리
+- **초기 데이터 로드**: 애플리케이션 시작 시 WCS_DB 전체 데이터 로드
+- **증분 데이터 처리**: 마지막 업데이트 시간 기준 변경된 데이터만 처리
+- **배치 처리**: 대용량 데이터 효율적 처리
+- **실시간 스케줄링**: 5초 간격으로 데이터 변경사항 모니터링
 
-## 🏗️ 아키텍처
+### 📋️ 데이터베이스 연동
+- **WCS DB**: SQL Server 기반 원본 데이터 추출
+- **PostgreSQL**: 처리된 데이터 저장 및 중복 체크
+- **연결 풀링**: Spring Boot 자동 연결 관리
+- **테이블 존재 확인**: 초기화 시점에만 확인하여 성능 최적화
+
+### 📡 메시징 시스템
+- **Kafka 연동**: 실시간 데이터 변경사항 전파
+- **토픽별 분리**: AGV, 재고, POD 데이터별 독립적 토픽
+- **메시지 이력**: PostgreSQL에 Kafka 메시지 처리 이력 저장
+
+## 시스템 아키텍처
 
 ```
-MSSQL (Source) → ETL Engine → PostgreSQL (Target)
-     ↓              ↓              ↓
-  robot_info   AgvDataETLEngine  robot_info
-inventory_info InventoryDataETLEngine inventory_info
-   pod_info    PodDataETLEngine     pod_info
+WCS_DB (SQL Server) → ETL 엔진 → PostgreSQL + Kafka
+     ↓                    ↓              ↓
+  데이터 추출        중복 필터링      데이터 저장
+  (Extract)        (Transform)     (Load)
 ```
 
-## 📁 프로젝트 구조
+이 README는 현재 구현된 코드의 주요 기능과 아키텍처를 반영하여 작성되었습니다. 필요에 따라 추가적인 섹션이나 상세 내용을 추가할 수 있습니다.
 
-```
-src/main/java/com/example/cdcqueue/
-├── CdcQueueApplication.java          # 메인 애플리케이션
-├── common/
-│   ├── config/
-│   │   ├── DatabaseConfig.java      # 데이터베이스 설정
-│   │   ├── ETLProperties.java       # ETL 설정
-│   │   ├── JacksonConfig.java       # JSON 설정
-│   │   └── PostgreSQLConfig.java    # PostgreSQL 설정
-│   ├── model/
-│   │   ├── AgvData.java            # Robot 데이터 모델
-│   │   ├── InventoryInfo.java      # 재고 데이터 모델
-│   │   ├── PodInfo.java            # POD 데이터 모델
-│   │   └── CdcEvent.java           # CDC 이벤트 모델
-│   └── queue/
-│       └── EventQueue.java         # 이벤트 큐
-├── etl/
-│   ├── AgvDataETLEngine.java       # Robot ETL 엔진 (핵심)
-│   ├── InventoryDataETLEngine.java # 재고 ETL 엔진
-│   ├── PodDataETLEngine.java       # POD ETL 엔진
-│   ├── DataETLEngine.java          # ETL 인터페이스
-│   ├── ETLConfig.java              # ETL 설정
-│   ├── ETLStatistics.java          # ETL 통계
-│   ├── ETLEngineException.java     # ETL 예외 처리
-│   ├── engine/
-│   │   ├── HybridPullingEngine.java    # 하이브리드 풀링 엔진
-│   │   ├── AgvHybridPullingEngine.java # Robot 전용 풀링 엔진
-│   │   ├── DataPullingEngine.java      # 풀링 엔진 인터페이스
-│   │   └── PullingEngineConfig.java    # 풀링 엔진 설정
-│   ├── service/
-│   │   ├── AgvDataService.java         # Robot 데이터 서비스
-│   │   ├── InventoryDataService.java   # 재고 데이터 서비스
-│   │   ├── PodDataService.java         # POD 데이터 서비스
-│   │   ├── PostgreSQLDataService.java  # PostgreSQL 데이터 서비스
-│   │   ├── AgvDataTask.java            # Robot 스케줄링 태스크
-│   │   ├── InventoryDataTask.java      # 재고 스케줄링 태스크
-│   │   └── PodDataTask.java            # POD 스케줄링 태스크
-│   └── controller/
-│       ├── AgvDataController.java      # Robot API 컨트롤러
-│       ├── InventoryDataController.java # 재고 API 컨트롤러
-│       └── PodDataController.java      # POD API 컨트롤러
-└── resources/
-    ├── application.properties         # 애플리케이션 설정
-    └── static/                       # 대시보드 UI
-        ├── index.html                 # 메인 대시보드
-        ├── realtime-monitor.html      # 실시간 모니터링
-        ├── independent-etl-dashboard.html # 독립 ETL 대시보드
-        ├── inventory-dashboard.html   # 재고 대시보드
-        └── pod-dashboard.html         # POD 대시보드
-```
+## API 엔드포인트
 
-## ⚙️ 설정
+### ETL 상태 관리
+- `GET /api/etl/status` - ETL 엔진 상태 조회
+- `GET /api/etl/statistics` - ETL 통계 정보
+- `POST /api/etl/execute` - 수동 ETL 실행
+- `POST /api/etl/reinitialize` - ETL 엔진 재초기화
+- `POST /api/etl/reset-cache` - 캐시 리셋
 
-### **데이터베이스 연결**
+### 데이터 조회
+- `GET /api/etl/wcs/data` - WCS DB 전체 AGV 데이터
+- `GET /api/etl/wcs/connection` - WCS DB 연결 상태
+
+### 캐시 관리
+- `GET /api/etl/cache/data` - 캐시된 데이터 조회
+- `GET /api/etl/cache/statistics` - 캐시 통계 정보
+
+## 설정
+
+### application.properties
 ```properties
-# MSSQL (Source)
-spring.datasource.url=jdbc:sqlserver://localhost:1433;databaseName=cdc_test
-spring.datasource.username=sa
-spring.datasource.password=nice2025!
+# WCS DB 연결 설정
+etl.database.driver=com.microsoft.sqlserver.jdbc.SQLServerDriver
+etl.database.url=jdbc:sqlserver://localhost:1433;databaseName=cdc_test;encrypt=true;trustServerCertificate=true
+etl.database.username=sa
+etl.database.password=nice2025!
 
-# PostgreSQL (Target)
-spring.postgresql.url=jdbc:postgresql://localhost:5432/cdcqueue
-spring.postgresql.username=postgres
-spring.postgresql.password=postgres
+# PostgreSQL 설정
+spring.datasource.postgresql.url=jdbc:postgresql://localhost:5432/etl_db
+spring.datasource.postgresql.username=postgres
+spring.datasource.postgresql.password=password
+
+# Kafka 설정
+spring.kafka.bootstrap-servers=localhost:9092
+spring.kafka.consumer.group-id=agv-etl-group
 ```
 
-### **ETL 설정**
-```properties
-# Robot ETL (0.1초마다 실행)
-etl.agv.pull-interval=100ms
-etl.agv.batch-size=100
+## 데이터 모델
 
-# Inventory ETL (3초마다 실행)
-etl.inventory.pull-interval=3000ms
+### AgvData
+- `uuid_no`: 고유 식별자
+- `robot_no`: 로봇 번호
+- `status`: 로봇 상태
+- `battery`: 배터리 잔량
+- `pos_x`, `pos_y`: 위치 좌표
+- `report_time`: 리포트 시간
 
-# Pod ETL (3초마다 실행)
-etl.pod.pull-interval=3000ms
+### InventoryInfo
+- `uuid_no`: 고유 식별자
+- `inventory`: 재고 정보
+- `sku`: 상품 코드
+- `pre_qty`, `new_qty`: 수량 정보
+- `report_time`: 리포트 시간
 
-# 전체 동기화 주기 (10분)
-etl.full-sync-interval=600000ms
-```
+### PodInfo
+- `uuid_no`: 고유 식별자
+- `pod_id`: POD ID
+- `pod_face`: POD 면
+- `location`: 위치 정보
+- `report_time`: 리포트 시간
 
-## 🚀 실행 방법
+## 성능 최적화
 
-### **1. 데이터베이스 시작**
+### 캐시 전략
+- **메모리 캐시**: 처리된 데이터 ID 캐싱
+- **LRU 정리**: 10,000개 이상 시 자동 정리
+- **중복 방지**: UUID + report_time 기반 중복 체크
+
+### 스케줄링 최적화
+- **초기 로드**: 애플리케이션 시작 시 1회만
+- **증분 처리**: 변경된 데이터만 처리
+- **배치 크기**: 100개 단위로 처리
+
+## 모니터링
+
+### ETL 통계
+- 총 처리 레코드 수
+- 성공한 레코드 수
+- 평균 처리 시간
+- 마지막 실행 시간
+
+### 시스템 상태
+- 데이터베이스 연결 상태
+- 테이블 존재 여부
+- 캐시 사용량
+- Kafka 메시지 처리 상태
+
+## 개발 환경
+
+- **Java**: 21
+- **Spring Boot**: 3.5.3
+- **데이터베이스**: SQL Server, PostgreSQL
+- **메시징**: Apache Kafka
+- **빌드 도구**: Gradle
+
+## 실행 방법
+
 ```bash
-# PostgreSQL 시작
-docker-compose up -d postgres
+# 프로젝트 클론
+git clone <repository-url>
+cd WCS_DataStream
 
-# MSSQL 시작 (별도 설정 필요)
-# localhost:1433, database: cdc_test
-```
-
-### **2. 애플리케이션 실행**
-```bash
+# 애플리케이션 실행
 ./gradlew bootRun
+
+# 또는 빌드 후 실행
+./gradlew build
+java -jar build/libs/WCS_DataStream-*.jar
 ```
 
-### **3. 대시보드 접속**
-- **메인 대시보드**: http://localhost:8081/
-- **실시간 모니터링**: http://localhost:8081/realtime-monitor.html
-- **재고 대시보드**: http://localhost:8081/inventory-dashboard.html
-- **POD 대시보드**: http://localhost:8081/pod-dashboard.html
+## API 테스트
 
-## 📊 API 엔드포인트
+### ETL 상태 확인
+```bash
+curl http://localhost:8081/api/etl/status
+```
 
-### **Robot 데이터**
-- `GET /api/agv/data` - Robot 데이터 조회
-- `GET /api/agv/status` - Robot 상태 조회
+### 수동 ETL 실행
+```bash
+curl -X POST http://localhost:8081/api/etl/execute
+```
 
-### **재고 데이터**
-- `GET /api/inventory/data` - 재고 데이터 조회
-- `GET /api/inventory/status` - 재고 상태 조회
+### WCS 데이터 조회
+```bash
+curl http://localhost:8081/api/etl/wcs/data
+```
 
-### **POD 데이터**
-- `GET /api/pod/data` - POD 데이터 조회
-- `GET /api/pod/status` - POD 상태 조회
+## 주의사항
 
-### **PostgreSQL 데이터**
-- `GET /api/postgresql/data` - PostgreSQL 데이터 상태 조회
+1. **데이터베이스 연결**: WCS DB와 PostgreSQL이 모두 실행 중이어야 함
+2. **Kafka 서버**: Kafka 브로커가 실행 중이어야 함
+3. **메모리 관리**: 캐시 크기가 10,000개를 초과하면 자동 정리됨
+4. **스케줄링**: 5초 간격으로 실행되므로 시스템 리소스 고려 필요
 
-## 🔧 핵심 기술
+## 라이센스
 
-### **ETL 엔진**
-- **Extract**: MSSQL에서 변경된 데이터 추출
-- **Transform**: 데이터 변환 및 검증
-- **Load**: PostgreSQL에 데이터 저장
-
-### **하이브리드 풀링**
-- **조건부 쿼리**: `report_time` 기반 변경 데이터 감지
-- **전체 동기화**: 주기적 전체 데이터 검증
-- **중복 필터링**: 스마트한 데이터 중복 제거
-
-### **실시간 처리**
-- **0.1초 주기**: Robot 데이터 실시간 감지
-- **3초 주기**: Inventory/POD 데이터 주기적 감지
-- **10분 주기**: 전체 데이터 무결성 검증
-
-## 📈 성능 특징
-
-- **Robot ETL**: 0.1초마다 실시간 처리 (22개 → 45개 자동 증가 확인)
-- **메모리 효율성**: `ConcurrentHashMap` 기반 캐시 관리
-- **배치 처리**: 대용량 데이터 처리 지원
-- **자동 복구**: 연결 실패 시 자동 재시도
-
-## 🧪 테스트 결과
-
-### **✅ 성공한 기능**
-1. **초기 데이터 로드**: 모든 테이블 정상 삽입
-2. **Robot 실시간 감지**: 데이터 변경 시 즉시 PostgreSQL 반영
-3. **자동 중복 필터링**: report_time 기반 스마트 필터링
-
-### **🔧 최적화 완료**
-1. **불필요한 파일 제거**: 테스트용 파일들 정리
-2. **사용되지 않는 기능 제거**: WebSocket, Kafka 관련 코드 정리
-3. **코드 구조 정리**: 핵심 ETL 기능 중심으로 단순화
-
-## 📝 라이선스
-
-이 프로젝트는 MIT 라이선스 하에 배포됩니다. 
-
-## 🤝 기여
-
-버그 리포트나 기능 제안은 이슈로 등록해 주세요.
-
----
-
-**CDC Queue** - 실시간 데이터 동기화의 새로운 표준 🚀 
+AGV Monitoring System - Version 2.0 

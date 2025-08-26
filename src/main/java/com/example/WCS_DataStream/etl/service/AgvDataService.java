@@ -102,7 +102,7 @@ public class AgvDataService {
                        loaders, report_time, battery, node_id, pos_x, pos_y, 
                        speed, task_id, next_target, pod_id
                 FROM robot_info 
-                WHERE report_time > ? 
+                WHERE report_time >= ? 
                 ORDER BY report_time DESC
                 """;
             

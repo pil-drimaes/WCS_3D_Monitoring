@@ -93,7 +93,11 @@ public abstract class ETLEngine<T> {
             // 마지막 실행 시간 업데이트
             lastExecutionTime.set(System.currentTimeMillis());
             
-            log.info("ETL process completed: extracted={}, processed={}", extractedCount, processedCount);
+            if (processedCount > 0 || extractedCount > 0) {
+                log.info("ETL process completed: extracted={}, processed={}", extractedCount, processedCount);
+            } else {
+                log.debug("ETL process completed: extracted=0, processed=0");
+            }
             return processedData;
             
         } catch (Exception e) {
@@ -128,6 +132,8 @@ public abstract class ETLEngine<T> {
      * 데이터 비교 (추상 메서드)
      */
     protected abstract boolean isSameData(T data1, T data2);
+
+    
     
     /**
      * ETL 엔진 초기화

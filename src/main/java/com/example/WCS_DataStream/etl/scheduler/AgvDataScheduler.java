@@ -75,61 +75,36 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
      */
     @Override
     protected void processInitialData() {
-        if (initialDataProcessed) {
-            return;
-        }
-        
+        if (initialDataProcessed) return;
         try {
-            log.info("AGV 초기 데이터 처리 시작");
-            
-            // ETL 엔진을 통해 초기 데이터 처리
-            List<AgvData> initialData = etlEngine.executeETL();
-            
-            // 처리된 데이터 ID를 캐시에 저장
-            for (AgvData agvData : initialData) {
-                String dataId = agvData.getUuidNo() + "_" + agvData.getReportTime();
-                processedIds.add(dataId);
+            List<AgvData> initialData = etlEngine.executeFullLoad(); // 변경
+            for (AgvData d : initialData) {
+                processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
             }
-            
             initialDataProcessed = true;
-            log.info("AGV 초기 데이터 처리 완료: {}개 레코드", initialData.size());
-            
         } catch (Exception e) {
             log.error("AGV 초기 데이터 처리 실패: {}", e.getMessage(), e);
         }
     }
-    
-    /**
-     * 증분 데이터 처리 (변경된 데이터만)
-     */
+
     @Override
     protected void processIncrementalData() {
         try {
-            // ETL 프로세스 실행
-            List<AgvData> processedData = etlEngine.executeETL();
-            
-            // 중복 처리 방지: 새로운 데이터만 처리
+            List<AgvData> processedData = etlEngine.executeETL(); // 변경: 증분
             int newDataCount = 0;
-            for (AgvData agvData : processedData) {
-                String dataId = agvData.getUuidNo() + "_" + agvData.getReportTime();
-                if (!processedIds.contains(dataId)) {
-                    processedIds.add(dataId);
+            for (AgvData d : processedData) {
+                String id = d.getUuidNo() + "_" + d.getReportTime();
+                if (!processedIds.contains(id)) {
+                    processedIds.add(id);
                     newDataCount++;
                 }
             }
-            
-            // 처리된 데이터 수 제한 (메모리 관리)
-            if (processedIds.size() > 10000) {
-                processedIds.clear();
-                log.info("Cleared processed IDs cache for memory management");
-            }
-            
+            if (processedIds.size() > 10000) processedIds.clear();
             if (newDataCount > 0) {
-                log.info("Processed {} new AGV data records through ETL engine (total: {})", newDataCount, processedData.size());
+                log.info("Processed {} new AGV data records", newDataCount);
             }
-            
         } catch (Exception e) {
-            log.error("Error in AGV incremental data processing: {}", e.getMessage(), e);
+            log.error("AGV 증분 데이터 처리 오류: {}", e.getMessage(), e);
         }
     }
     

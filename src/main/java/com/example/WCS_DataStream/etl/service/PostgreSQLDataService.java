@@ -702,4 +702,36 @@ public class PostgreSQLDataService {
             return 0;
         }
     }
+
+    public Long getRobotLastProcessedTime() {
+        try {
+            String sql = "SELECT COALESCE(MAX(report_time), 0) FROM robot_info";
+            Long v = postgresqlJdbcTemplate.queryForObject(sql, Long.class);
+            return v != null ? v : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+    
+    public Long getInventoryLastProcessedTime() {
+        try {
+            String sql = "SELECT COALESCE(MAX(report_time), 0) FROM inventory_info";
+            Long v = postgresqlJdbcTemplate.queryForObject(sql, Long.class);
+            return v != null ? v : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+    
+    public Long getPodLastProcessedTime() {
+        try {
+            String sql = "SELECT COALESCE(MAX(report_time), 0) FROM pod_info";
+            Long v = postgresqlJdbcTemplate.queryForObject(sql, Long.class);
+            return v != null ? v : 0L;
+        } catch (Exception e) {
+            return 0L;
+        }
+    }
+
+    
 } 

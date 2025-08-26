@@ -61,36 +61,19 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     }
     @Override
     public List<PodInfo> executeETL() throws ETLEngineException {
+        return super.executeETL();
+    }
+
+    public List<PodInfo> executeFullLoad() throws ETLEngineException {
         try {
-            // PostgreSQL 연결 상태 및 테이블 존재 확인
             if (!checkTableExists()) {
-                log.error("PostgreSQL pod_info 테이블이 존재하지 않음. ETL 엔진 중단.");
                 throw new ETLEngineException("PostgreSQL pod_info 테이블이 존재하지 않음");
-            } 
-            
-            // 모든 데이터를 가져와서 중복 필터링만 수행 (AgvDataETLEngine과 동일한 방식)
+            }
             List<PodInfo> allData = podDataService.getAllPodData();
-            log.debug("추출된 POD 데이터 {}개", allData.size());
-            
-            if (allData.isEmpty()) {
-                log.debug("처리할 POD 데이터가 없습니다");
-                return new ArrayList<>();
-            }
-            
-            // 중복 데이터 필터링
-            List<PodInfo> filteredData = filterDuplicateData(allData);
-            log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
-            
-            if (filteredData.isEmpty()) {
-                log.debug("중복 필터링 후 처리할 데이터가 없습니다");
-                return new ArrayList<>();
-            }
-            
-            // Transform & Load: 데이터 변환 및 저장
-            return processETLInternal(filteredData);
-            
+            List<PodInfo> filtered = filterDuplicateData(allData);
+            return processETLInternal(filtered);
         } catch (Exception e) {
-            throw new ETLEngineException("POD 정보 ETL 처리 중 오류 발생", e);
+            throw new ETLEngineException("POD 전체 로드 중 오류", e);
         }
     }
     
@@ -330,12 +313,12 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     @Override
     protected List<PodInfo> extractData() throws ETLEngineException {
         try {
-            LocalDateTime lastProcessedTime = getLatestTimestamp();
-            List<PodInfo> data = podDataService.getPodDataAfterTimestamp(lastProcessedTime);
-            log.debug("Extracted {} records from pod data service", data.size());
-            return data;
+            long wm = postgreSQLDataService.getPodLastProcessedTime();
+            long wmQuery = wm <= 0 ? 0 : wm + 1;
+            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wmQuery)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
+            return podDataService.getPodDataAfterTimestamp(lastProcessedTime);
         } catch (Exception e) {
-            log.error("Error during data extraction: {}", e.getMessage(), e);
             throw new ETLEngineException("Error during data extraction", e);
         }
     }
@@ -361,6 +344,8 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
             throw new ETLEngineException("Error during transform and load", e);
         }
     }
+
+    
     
     @Override
     public boolean isConnected() {
@@ -369,7 +354,7 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     
     @Override
     protected String getDataKey(PodInfo data) {
-        return data.getUuidNo() != null ? data.getUuidNo() : data.getPodId();
+        return data.getUuidNo();
     }
     
     @Override
