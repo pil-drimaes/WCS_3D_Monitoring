@@ -143,9 +143,9 @@ public abstract class BaseETLScheduler<T> {
     }
     
     /**
-     * 캐시 초기화
+     * 스케줄러 캐시 초기화 (스케줄러 내부 상태 전용)
      */
-    public abstract void clearCache();
+    public abstract void clearSchedulerCache();
     
     /**
      * 강제 초기화 (재시작 시 사용)
@@ -153,8 +153,8 @@ public abstract class BaseETLScheduler<T> {
     public void forceReinitialize() {
         initialized = false;
         lastProcessedTime.set(null);
-        clearCache();
-        log.info("{} 강제 초기화 완료 - 캐시 리셋 및 전체 데이터 재처리", getSchedulerName());
+        clearSchedulerCache();
+        log.info("{} 스케줄러 캐시 리셋 완료", getSchedulerName());
     }
     
     /**

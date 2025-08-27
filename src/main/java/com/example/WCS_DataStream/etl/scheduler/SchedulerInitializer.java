@@ -44,13 +44,7 @@ public class SchedulerInitializer {
             inventoryDataScheduler.initializeOnStartup();
             podDataScheduler.initializeOnStartup();
             
-            // 강제 재처리 모드 활성화 (재시작 시 모든 데이터를 다시 처리)
-            agvDataScheduler.enableForceReprocess();
-            inventoryDataScheduler.enableForceReprocess();
-            podDataScheduler.enableForceReprocess();
-            
             log.info("=== 모든 ETL 스케줄러 초기화 완료 ===");
-            log.info("강제 재처리 모드가 활성화되어 WCS_DB의 모든 데이터를 다시 처리합니다.");
             
         } catch (Exception e) {
             log.error("스케줄러 초기화 중 오류 발생: {}", e.getMessage(), e);

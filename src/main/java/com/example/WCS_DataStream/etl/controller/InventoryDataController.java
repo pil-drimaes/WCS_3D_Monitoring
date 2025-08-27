@@ -168,4 +168,23 @@ public class InventoryDataController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @PostMapping("/reset-cache")
+    public ResponseEntity<Map<String, Object>> resetCache() {
+        Map<String, Object> response = new HashMap<>();
+        try {
+            log.info("Resetting Inventory ETL engine cache");
+            inventoryDataETLEngine.clearCache();
+            response.put("success", true);
+            response.put("message", "Inventory ETL 엔진 캐시가 성공적으로 리셋되었습니다.");
+            response.put("timestamp", System.currentTimeMillis());
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            log.error("Error resetting Inventory engine cache: {}", e.getMessage(), e);
+            response.put("success", false);
+            response.put("message", "Inventory 캐시 리셋 실패: " + e.getMessage());
+            response.put("timestamp", System.currentTimeMillis());
+            return ResponseEntity.internalServerError().body(response);
+        }
+    }
 } 

@@ -218,19 +218,20 @@ public class AgvDataController {
         Map<String, Object> response = new HashMap<>();
         
         try {
-            log.info("Resetting ETL engine cache");
+            log.info("Resetting AGV ETL engine cache");
+            etlEngine.clearCache(); // 엔진 캐시만 리셋
             
             response.put("success", true);
-            response.put("message", "ETL 엔진 캐시가 성공적으로 리셋되었습니다.");
+            response.put("message", "AGV ETL 엔진 캐시가 성공적으로 리셋되었습니다.");
             response.put("timestamp", System.currentTimeMillis());
             
             return ResponseEntity.ok(response);
             
         } catch (Exception e) {
-            log.error("Error resetting cache: {}", e.getMessage(), e);
+            log.error("Error resetting AGV engine cache: {}", e.getMessage(), e);
             
             response.put("success", false);
-            response.put("message", "캐시 리셋 실패: " + e.getMessage());
+            response.put("message", "AGV 캐시 리셋 실패: " + e.getMessage());
             response.put("timestamp", System.currentTimeMillis());
             
             return ResponseEntity.internalServerError().body(response);

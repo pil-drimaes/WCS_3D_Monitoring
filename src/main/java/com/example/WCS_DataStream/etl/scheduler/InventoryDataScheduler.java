@@ -95,22 +95,14 @@ public class InventoryDataScheduler extends BaseETLScheduler<InventoryInfo> {
     }
     
     /**
-     * 캐시 초기화
+     * 스케줄러 캐시 초기화
      */
     @Override
-    public void clearCache() {
+    public void clearSchedulerCache() {
         processedIds.clear();
         lastProcessedTime.set(null);
         initialDataProcessed = false;
         log.info("재고 정보 스케줄러 캐시 초기화 완료");
     }
     
-    /**
-     * 애플리케이션 시작 시 초기화
-     */
-    public void initializeOnStartup() {
-        log.info("재고 정보 스케줄러 애플리케이션 시작 시 초기화");
-        clearCache();
-        // 다음 executeETLProcess() 호출 시 전체 데이터를 다시 처리
-    }
 } 
