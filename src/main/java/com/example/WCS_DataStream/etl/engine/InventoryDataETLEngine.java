@@ -352,8 +352,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     protected List<InventoryInfo> extractData() throws ETLEngineException {
         try {
             long wm = postgreSQLDataService.getInventoryLastProcessedTime();
-            long wmQuery = wm <= 0 ? 0 : wm + 1;
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wmQuery)
+            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
             return inventoryDataService.getInventoryDataAfterTimestamp(lastProcessedTime);
         } catch (Exception e) {

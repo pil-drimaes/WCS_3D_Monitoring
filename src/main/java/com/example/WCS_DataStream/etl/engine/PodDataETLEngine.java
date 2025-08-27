@@ -314,8 +314,7 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     protected List<PodInfo> extractData() throws ETLEngineException {
         try {
             long wm = postgreSQLDataService.getPodLastProcessedTime();
-            long wmQuery = wm <= 0 ? 0 : wm + 1;
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wmQuery)
+            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
             return podDataService.getPodDataAfterTimestamp(lastProcessedTime);
         } catch (Exception e) {

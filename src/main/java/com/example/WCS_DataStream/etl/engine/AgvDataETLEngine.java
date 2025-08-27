@@ -342,8 +342,7 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     protected List<AgvData> extractData() throws ETLEngineException {
         try {
             long wm = postgreSQLDataService.getRobotLastProcessedTime();
-            long wmQuery = wm <= 0 ? 0 : wm + 1;
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wmQuery)
+            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
             return agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
         } catch (Exception e) {
