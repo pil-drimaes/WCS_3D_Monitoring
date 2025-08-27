@@ -17,14 +17,12 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 /**
  * AGV 데이터 ETL 스케줄러
  * 
- * ETL 엔진을 사용하여 WCS DB에서 AGV 데이터를 가져와서 이벤트 큐에 추가합니다.
- * 기존 CDC 방식과 별도로 동작하여 다양한 데이터 소스를 지원할 수 있습니다.
  * 
  * 주요 기능:
  * - ETL 엔진을 통한 데이터 처리
  * - 하이브리드 풀링 방식으로 데이터 변화 감지
  * - 데이터 검증 및 변환
- * - 이벤트 큐에 CDC 이벤트 추가
+ * - 데이터 로드 시 Kafka 전송
  * 
  * @author AGV Monitoring System
  * @version 2.0
@@ -59,7 +57,16 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
         super(postgreSQLDataService);  // 부모 생성자 호출
         this.etlEngine = etlEngine;
     }
-    
+
+    @Override
+    @org.springframework.scheduling.annotation.Scheduled(
+        fixedRateString = "${etl.agv.interval}",
+        initialDelayString = "${etl.agv.initialDelay}"
+    )
+    public void executeETLProcess() {
+        super.executeETLProcess();
+    }
+
     @Override
     protected ETLEngine<AgvData> getETLEngine() {
         return etlEngine;
@@ -90,7 +97,7 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
     @Override
     protected void processIncrementalData() {
         try {
-            List<AgvData> processedData = etlEngine.executeETL(); // 변경: 증분
+            List<AgvData> processedData = etlEngine.executeETL(); 
             int newDataCount = 0;
             for (AgvData d : processedData) {
                 String id = d.getUuidNo() + "_" + d.getReportTime();
@@ -107,6 +114,7 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
             log.error("AGV 증분 데이터 처리 오류: {}", e.getMessage(), e);
         }
     }
+
     
     /**
      * 스케줄러 캐시 초기화

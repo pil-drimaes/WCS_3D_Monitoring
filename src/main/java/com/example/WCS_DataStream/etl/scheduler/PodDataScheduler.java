@@ -45,6 +45,14 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
         super(postgreSQLDataService);  // 부모 생성자 호출
         this.etlEngine = etlEngine;
     }
+
+    @org.springframework.scheduling.annotation.Scheduled(
+        fixedRateString = "${etl.pod.interval}",
+        initialDelayString = "${etl.pod.initialDelay}"
+    )
+    public void executeETLProcess() {
+        super.executeETLProcess();
+    }
     
     @Override
     protected ETLEngine<PodInfo> getETLEngine() {
@@ -105,4 +113,5 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
         log.info("POD 정보 스케줄러 캐시 초기화 완료");
     }
     
+
 } 
