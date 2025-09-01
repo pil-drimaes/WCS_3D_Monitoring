@@ -40,8 +40,8 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     // 마지막 실행 시간 추적
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
     
-    // 중복 데이터 필터링을 위한 캐시 (uuid_no -> report_time)
-    private final ConcurrentHashMap<String, Long> processedDataCache = new ConcurrentHashMap<>();
+    // 중복 데이터 필터링을 위한 캐시 (uuid_no -> 최신 데이터)
+    private final ConcurrentHashMap<String, InventoryInfo> processedDataCache = new ConcurrentHashMap<>();
     
     public InventoryDataETLEngine(InventoryDataService inventoryDataService,
                                  KafkaProducerService kafkaProducerService,
@@ -202,28 +202,36 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                              data.getUuidNo(), e.getMessage());
                 }
                 
-                // 2. 캐시 기반 중복 체크 (백업)
+                // 2. 캐시 기반 비교 (전체 필드 비교)
                 String key = data.getUuidNo();
-                Long cachedTime = processedDataCache.get(key);
-                
-                if (cachedTime == null) {
-                    // 새로운 데이터인 경우
-                    processedDataCache.put(key, data.getReportTime());
+                InventoryInfo cached = processedDataCache.get(key);
+
+                if (cached == null) {
+                    processedDataCache.put(key, data);
                     log.debug("새로운 재고 데이터 감지: uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
-                
-                if (data.getReportTime() > cachedTime) {
-                    // report_time이 더 최신인 경우 (업데이트된 데이터)
-                    processedDataCache.put(key, data.getReportTime());
-                    log.debug("업데이트된 재고 데이터 감지: uuid={}, old_time={}, new_time={}", 
-                             key, cachedTime, data.getReportTime());
-                    return true;
+
+                if (data.getReportTime() > cached.getReportTime()) {
+                    boolean same = isSameData(data, cached);
+                    processedDataCache.put(key, data);
+                    if (!same) {
+                        log.debug("업데이트된 재고 데이터 감지: uuid={}, old_time={}, new_time={}", 
+                                 key, cached.getReportTime(), data.getReportTime());
+                        return true;
+                    } else {
+                        log.debug("내용 동일로 처리 제외: uuid={}, report_time={}", key, data.getReportTime());
+                        return false;
+                    }
                 }
-                
-                // report_time이 같거나 이전인 경우 중복으로 처리
-                log.debug("중복 재고 데이터 제외: uuid={}, cached_time={}, data_time={}", 
-                         key, cachedTime, data.getReportTime());
+
+                if (!isSameData(data, cached)) {
+                    log.debug("변경 감지되었으나 최신 아님: uuid={}, cached_time={}, data_time={}",
+                              key, cached.getReportTime(), data.getReportTime());
+                } else {
+                    log.debug("중복 재고 데이터 제외: uuid={}, cached_time={}, data_time={}",
+                              key, cached.getReportTime(), data.getReportTime());
+                }
                 return false;
             })
             .toList();
@@ -331,19 +339,20 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
      */
     private boolean isDuplicateData(InventoryInfo data) {
         String key = getDataKey(data);
-        Long cachedTime = processedDataCache.get(key);
+        InventoryInfo cached = processedDataCache.get(key);
         
-        if (cachedTime == null) {
-            processedDataCache.put(key, data.getReportTime());
+        if (cached == null) {
+            processedDataCache.put(key, data);
             return false;
         }
         
-        if (data.getReportTime() > cachedTime) {
-            processedDataCache.put(key, data.getReportTime());
-            return false;
+        if (data.getReportTime() > cached.getReportTime()) {
+            boolean same = isSameData(data, cached);
+            processedDataCache.put(key, data);
+            return !same;
         }
         
-        return true;
+        return false;
     }
     
     // ETLEngine 추상 메서드 구현
@@ -385,9 +394,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     
     @Override
     protected boolean isSameData(InventoryInfo data1, InventoryInfo data2) {
-        return data1.getInventory().equals(data2.getInventory()) &&
-               data1.getBatchNum().equals(data2.getBatchNum()) &&
-               data1.getReportTime().equals(data2.getReportTime());
+        return data1 != null && data1.equals(data2);
     }
 
     @Override
