@@ -99,7 +99,7 @@ public abstract class BaseETLScheduler<T> {
     /**
      * ETL 프로세스 실행 (공통 로직)
      */
-    @Scheduled(fixedRate = 100) // 0.1초마다 실행
+    // @Scheduled(fixedRate = 100) // 0.1초마다 실행 (도메인별 주기 설정으로 이동)
     public void executeETLProcess() {
         try {
             if (!initialized) {

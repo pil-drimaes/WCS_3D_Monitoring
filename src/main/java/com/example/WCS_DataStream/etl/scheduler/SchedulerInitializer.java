@@ -10,7 +10,7 @@ import org.springframework.stereotype.Component;
 /**
  * 애플리케이션 시작 시 모든 ETL 스케줄러를 초기화하는 컴포넌트
  * 
- * @author AGV Monitoring System
+ * @author WCS Monitoring System
  * @version 2.0
  */
 @Component

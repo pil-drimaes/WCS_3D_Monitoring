@@ -45,6 +45,16 @@ public class InventoryDataScheduler extends BaseETLScheduler<InventoryInfo> {
         super(postgreSQLDataService);  // 부모 생성자 호출
         this.etlEngine = etlEngine;
     }
+
+
+    @Override
+    @org.springframework.scheduling.annotation.Scheduled(
+        fixedRateString = "${etl.inventory.interval}",
+        initialDelayString = "${etl.inventory.initialDelay}"
+    )
+    public void executeETLProcess() {
+        super.executeETLProcess();
+    }
     
     @Override
     protected ETLEngine<InventoryInfo> getETLEngine() {
@@ -105,4 +115,5 @@ public class InventoryDataScheduler extends BaseETLScheduler<InventoryInfo> {
         log.info("재고 정보 스케줄러 캐시 초기화 완료");
     }
     
+
 } 

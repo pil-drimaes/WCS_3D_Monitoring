@@ -46,7 +46,7 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
 
     // 중복 데이터 필터링을 위한 캐시 (uuid_no -> report_time)
-    private final ConcurrentHashMap<String, Long> processedDataCache = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, AgvData> processedDataCache = new ConcurrentHashMap<>();
 
     public AgvDataETLEngine(AgvDataService agvDataService,
                            KafkaProducerService kafkaProducerService,
@@ -216,28 +216,39 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                              data.getUuidNo(), e.getMessage());
                 }
 
-                // 2. 캐시 기반 중복 체크 (백업)
+                // 2. 캐시 기반 비교 (전체 필드 비교)
                 String key = data.getUuidNo();
-                Long cachedTime = processedDataCache.get(key);
-                
-                if (cachedTime == null) {
-                    // 새로운 데이터인 경우
-                    processedDataCache.put(key, data.getReportTime());
+                AgvData cached = processedDataCache.get(key);
+
+                if (cached == null) {
+                    // 새로운 키의 첫 데이터: 캐시에 저장하고 처리
+                    processedDataCache.put(key, data);
                     log.debug("새로운 AGV 데이터 감지: uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
-                
-                if (data.getReportTime() > cachedTime) {
-                    // report_time이 더 최신인 경우 (업데이트된 데이터)
-                    processedDataCache.put(key, data.getReportTime());
-                    log.debug("업데이트된 AGV 데이터 감지: uuid={}, old_time={}, new_time={}", 
-                             key, cachedTime, data.getReportTime());
-                    return true;
+
+                // 최신 데이터만 캐시에 반영
+                if (data.getReportTime() > cached.getReportTime()) {
+                    boolean same = isSameData(data, cached);
+                    processedDataCache.put(key, data); // 최신으로 갱신
+                    if (!same) {
+                        log.debug("업데이트된 AGV 데이터 감지: uuid={}, old_time={}, new_time={}",
+                                 key, cached.getReportTime(), data.getReportTime());
+                        return true;
+                    } else {
+                        log.debug("내용 동일로 처리 제외: uuid={}, report_time={}", key, data.getReportTime());
+                        return false;
+                    }
                 }
 
-            // report_time이 같은 경우 중복으로 처리
-                log.debug("중복 AGV 데이터 제외: uuid={}, cached_time={}, data_time={}", 
-                            key, cachedTime, data.getReportTime());
+                // 최신이 아니거나 같은 시간: 변경이 있어도 캐시는 갱신하지 않음
+                if (!isSameData(data, cached)) {
+                    log.debug("변경 감지되었으나 최신 아님: uuid={}, cached_time={}, data_time={}",
+                              key, cached.getReportTime(), data.getReportTime());
+                } else {
+                    log.debug("중복 AGV 데이터 제외: uuid={}, cached_time={}, data_time={}",
+                              key, cached.getReportTime(), data.getReportTime());
+                }
                 return false;
             })
             .toList();
@@ -375,8 +386,7 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
 
     @Override
     protected boolean isSameData(AgvData data1, AgvData data2) {
-        return data1.getUuidNo().equals(data2.getUuidNo()) &&
-               data1.getReportTime().equals(data2.getReportTime());
+        return data1 != null && data1.equals(data2);
     }
 
     @Override
