@@ -18,6 +18,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.example.WCS_DataStream.etl.service.RedisCacheService;
 
 /**
  * 재고 정보 ETL 엔진
@@ -36,19 +37,24 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     private final InventoryDataService inventoryDataService;
     private final KafkaProducerService kafkaProducerService;
     private final PostgreSQLDataService postgreSQLDataService;
+    private final RedisCacheService redisCacheService;
+
+    private static final String CACHE_NS = "inventory-cache";
     
     // 마지막 실행 시간 추적
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
     
     // 중복 데이터 필터링을 위한 캐시 (uuid_no -> 최신 데이터)
-    private final ConcurrentHashMap<String, InventoryInfo> processedDataCache = new ConcurrentHashMap<>();
+    // private final ConcurrentHashMap<String, InventoryInfo> processedDataCache = new ConcurrentHashMap<>();
     
     public InventoryDataETLEngine(InventoryDataService inventoryDataService,
                                  KafkaProducerService kafkaProducerService,
-                                 PostgreSQLDataService postgreSQLDataService) {
+                                 PostgreSQLDataService postgreSQLDataService,
+                                 RedisCacheService redisCacheService) {
         this.inventoryDataService = inventoryDataService;
         this.kafkaProducerService = kafkaProducerService;
         this.postgreSQLDataService = postgreSQLDataService;
+        this.redisCacheService = redisCacheService;
     }
 
     @Override
@@ -80,17 +86,10 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
         }
     }
     
-    /**
-     * ETL 프로세스 실행 (내부 구현 - 시간 기반)
-     * 
-     * @param lastProcessedTime 마지막 처리 시간
-     * @return 처리된 재고 데이터 리스트
-     */
     private List<InventoryInfo> processETLInternal(LocalDateTime lastProcessedTime) {
         log.debug("재고 정보 ETL 프로세스 시작 - Extract 단계");
         
         try {
-            // Extract: WCS DB에서 데이터 추출
             List<InventoryInfo> allData = inventoryDataService.getInventoryDataAfterTimestamp(lastProcessedTime);
             log.debug("추출된 재고 데이터 {}개", allData.size());
             
@@ -99,7 +98,6 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                 return new ArrayList<>();
             }
             
-            // 중복 데이터 필터링
             List<InventoryInfo> filteredData = filterDuplicateData(allData);
             log.debug("중복 필터링 후 {}개 데이터", filteredData.size());
             
@@ -108,17 +106,13 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                 return new ArrayList<>();
             }
             
-            // Transform: 데이터 변환 (필요시)
             List<InventoryInfo> transformedData = transformData(filteredData);
             
-            // Load: PostgreSQL에 데이터 저장
             int savedCount = inventoryDataService.saveInventoryDataBatch(transformedData);
             log.info("재고 데이터 ETL 완료: {}개 중 {}개 저장", transformedData.size(), savedCount);
             
-            // Kafka 메시지 발행
             publishToKafka(transformedData);
             
-            // 마지막 실행 시간 업데이트
             lastExecutionTime.set(System.currentTimeMillis());
             
             return transformedData;
@@ -129,12 +123,6 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
         }
     }
     
-    /**
-     * ETL 프로세스 실행 (내부 구현 - 데이터 기반)
-     * 
-     * @param filteredData 이미 필터링된 데이터
-     * @return 처리된 재고 데이터 리스트
-     */
     private List<InventoryInfo> processETLInternal(List<InventoryInfo> filteredData) {
         log.debug("재고 정보 ETL 프로세스 시작 - Transform & Load 단계");
         
@@ -144,17 +132,13 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                 return new ArrayList<>();
             }
             
-            // Transform: 데이터 변환 (필요시)
             List<InventoryInfo> transformedData = transformData(filteredData);
             
-            // Load: PostgreSQL에 데이터 저장
             int savedCount = inventoryDataService.saveInventoryDataBatch(transformedData);
             log.info("재고 데이터 ETL 완료: {}개 중 {}개 저장", transformedData.size(), savedCount);
             
-            // Kafka 메시지 발행
             publishToKafka(transformedData);
             
-            // 마지막 실행 시간 업데이트
             lastExecutionTime.set(System.currentTimeMillis());
             
             return transformedData;
@@ -189,7 +173,6 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                     return true; // UUID나 report_time이 없으면 처리
                 }
                 
-                // 1. PostgreSQL에서 이미 존재하는지 확인 (AGV와 동일한 방식)
                 try {
                     boolean existsInPostgres = postgreSQLDataService.isInventoryDataExists(data.getUuidNo(), data.getReportTime());
                     if (existsInPostgres) {
@@ -202,34 +185,34 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                              data.getUuidNo(), e.getMessage());
                 }
                 
-                // 2. 캐시 기반 비교 (전체 필드 비교)
+                // Redis 캐시 비교
                 String key = data.getUuidNo();
-                InventoryInfo cached = processedDataCache.get(key);
-
+                InventoryInfo cached = redisCacheService.get(CACHE_NS, key, InventoryInfo.class);
+                
                 if (cached == null) {
-                    processedDataCache.put(key, data);
-                    log.debug("새로운 재고 데이터 감지: uuid={}, report_time={}", key, data.getReportTime());
+                    redisCacheService.set(CACHE_NS, key, data);
+                    log.debug("새로운 재고 데이터 감지(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
-
+                
                 if (data.getReportTime() > cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
-                    processedDataCache.put(key, data);
+                    redisCacheService.set(CACHE_NS, key, data);
                     if (!same) {
-                        log.debug("업데이트된 재고 데이터 감지: uuid={}, old_time={}, new_time={}", 
+                        log.debug("업데이트된 재고 데이터 감지(REDIS): uuid={}, old_time={}, new_time={}", 
                                  key, cached.getReportTime(), data.getReportTime());
                         return true;
                     } else {
-                        log.debug("내용 동일로 처리 제외: uuid={}, report_time={}", key, data.getReportTime());
+                        log.debug("내용 동일로 처리 제외(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                         return false;
                     }
                 }
-
+                
                 if (!isSameData(data, cached)) {
-                    log.debug("변경 감지되었으나 최신 아님: uuid={}, cached_time={}, data_time={}",
+                    log.debug("변경 감지되었으나 최신 아님(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
                 } else {
-                    log.debug("중복 재고 데이터 제외: uuid={}, cached_time={}, data_time={}",
+                    log.debug("중복 재고 데이터 제외(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
                 }
                 return false;
@@ -237,20 +220,12 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
             .toList();
     }
     
-    /**
-     * 데이터 변환 (Transform)
-     * 
-     * @param inventoryDataList 원본 데이터 리스트
-     * @return 변환된 데이터 리스트
-     */
     private List<InventoryInfo> transformData(List<InventoryInfo> inventoryDataList) {
-        // UUID가 없는 경우에만 생성 (원본 UUID 유지)
         inventoryDataList.forEach(data -> {
             if (data.getUuidNo() == null || data.getUuidNo().isEmpty()) {
                 data.setUuidNo(UUID.randomUUID().toString());
             }
             
-            // report_time이 없는 경우 현재 시간으로 설정
             if (data.getReportTime() == null) {
                 data.setReportTime(System.currentTimeMillis());
             }
@@ -321,41 +296,18 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
      * 캐시 초기화 (메모리 관리용)
      */
     public void clearCache() {
-        processedDataCache.clear();
-        log.info("재고 정보 ETL 엔진 캐시 초기화 완료");
+        redisCacheService.clearNamespace(CACHE_NS);
+        log.info("재고 정보 ETL 엔진 캐시 초기화 완료 (REDIS)");
     }
     
     /**
      * 강제 캐시 리셋 (테스트용)
      */
     public void resetCache() {
-        processedDataCache.clear();
+        redisCacheService.clearNamespace(CACHE_NS);
         lastExecutionTime.set(0);
-        log.info("재고 정보 ETL 엔진 캐시 강제 리셋 완료");
+        log.info("재고 정보 ETL 엔진 캐시 강제 리셋 완료 (REDIS)");
     }
-    
-    /**
-     * 중복 데이터 확인
-     */
-    private boolean isDuplicateData(InventoryInfo data) {
-        String key = getDataKey(data);
-        InventoryInfo cached = processedDataCache.get(key);
-        
-        if (cached == null) {
-            processedDataCache.put(key, data);
-            return false;
-        }
-        
-        if (data.getReportTime() > cached.getReportTime()) {
-            boolean same = isSameData(data, cached);
-            processedDataCache.put(key, data);
-            return !same;
-        }
-        
-        return false;
-    }
-    
-    // ETLEngine 추상 메서드 구현
     
     @Override
     protected List<InventoryInfo> extractData() throws ETLEngineException {
