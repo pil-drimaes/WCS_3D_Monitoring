@@ -290,7 +290,7 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                     agvData.getPosX(), agvData.getPosY()
                 );
                 
-                kafkaProducerService.sendMessage("agv-updates", message);
+                kafkaProducerService.sendMessageWithCallback("agv-updates", agvData.getRobotNo(), message, true);
             }
             
             log.debug("AGV 데이터 Kafka 메시지 {}개 발행 완료", agvDataList.size());

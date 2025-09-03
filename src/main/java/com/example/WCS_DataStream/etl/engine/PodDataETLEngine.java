@@ -260,7 +260,7 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
                     podInfo.getLocation()
                 );
                 
-                kafkaProducerService.sendMessage("pod-updates", message);
+                kafkaProducerService.sendMessageWithCallback("pod-updates", podInfo.getUuidNo(), message, true);
             }
             
             log.debug("POD 정보 Kafka 메시지 {}개 발행 완료", podDataList.size());

@@ -94,7 +94,7 @@ public class InventoryDataService {
             SELECT uuid_no, inventory, batch_num, unitload, sku, pre_qty, new_qty, 
                    origin_order, status, report_time
             FROM inventory_info 
-            WHERE report_time >= ? 
+            WHERE report_time > ? 
             ORDER BY report_time DESC
             """;
         

@@ -109,7 +109,7 @@ public class PodDataService {
         String sql = """
             SELECT uuid_no, pod_id, pod_face, location, report_time
             FROM pod_info 
-            WHERE report_time >= ? 
+            WHERE report_time > ? 
             ORDER BY report_time DESC
             """;
         
