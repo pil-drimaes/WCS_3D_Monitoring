@@ -16,6 +16,8 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
+import com.example.WCS_DataStream.etl.service.RedisCacheService;
+
 /**
  * POD 정보 ETL 엔진
  * 
@@ -34,19 +36,24 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     private final PodDataService podDataService;
     private final KafkaProducerService kafkaProducerService;
     private final PostgreSQLDataService postgreSQLDataService;
+    private final RedisCacheService redisCacheService;
+
+    private static final String CACHE_NS = "pod-cache";
     
     // 마지막 실행 시간 추적
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
     
     // 중복 데이터 필터링을 위한 캐시 (uuid_no -> 최신 데이터)
-    private final ConcurrentHashMap<String, PodInfo> processedDataCache = new ConcurrentHashMap<>();
+    // private final ConcurrentHashMap<String, PodInfo> processedDataCache = new ConcurrentHashMap<>();
     
     public PodDataETLEngine(PodDataService podDataService,
                            KafkaProducerService kafkaProducerService,
-                           PostgreSQLDataService postgreSQLDataService) {
+                           PostgreSQLDataService postgreSQLDataService,
+                           RedisCacheService redisCacheService) {
         this.podDataService = podDataService;
         this.kafkaProducerService = kafkaProducerService;
         this.postgreSQLDataService = postgreSQLDataService;
+        this.redisCacheService = redisCacheService;
     }
     
     /**
@@ -188,34 +195,34 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
                              data.getUuidNo(), e.getMessage());
                 }
                 
-                // 2. 캐시 기반 비교 (전체 필드 비교)
+                // Redis 캐시 기반 비교
                 String key = data.getUuidNo();
-                PodInfo cached = processedDataCache.get(key);
+                PodInfo cached = redisCacheService.get(CACHE_NS, key, PodInfo.class);
 
                 if (cached == null) {
-                    processedDataCache.put(key, data);
-                    log.debug("새로운 POD 데이터 감지: uuid={}, report_time={}", key, data.getReportTime());
+                    redisCacheService.set(CACHE_NS, key, data);
+                    log.debug("새로운 POD 데이터 감지(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
 
                 if (data.getReportTime() > cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
-                    processedDataCache.put(key, data);
+                    redisCacheService.set(CACHE_NS, key, data);
                     if (!same) {
-                        log.debug("업데이트된 POD 데이터 감지: uuid={}, old_time={}, new_time={}",
+                        log.debug("업데이트된 POD 데이터 감지(REDIS): uuid={}, old_time={}, new_time={}",
                                  key, cached.getReportTime(), data.getReportTime());
                         return true;
                     } else {
-                        log.debug("내용 동일로 처리 제외: uuid={}, report_time={}", key, data.getReportTime());
+                        log.debug("내용 동일로 처리 제외(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                         return false;
                     }
                 }
 
                 if (!isSameData(data, cached)) {
-                    log.debug("변경 감지되었으나 최신 아님: uuid={}, cached_time={}, data_time={}",
+                    log.debug("변경 감지되었으나 최신 아님(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
                 } else {
-                    log.debug("중복 POD 데이터 제외: uuid={}, cached_time={}, data_time={}",
+                    log.debug("중복 POD 데이터 제외(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
                 }
                 return false;
@@ -303,17 +310,17 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
      * 캐시 초기화 (메모리 관리용)
      */
     public void clearCache() {
-        processedDataCache.clear();
-        log.info("POD 정보 ETL 엔진 캐시 초기화 완료");
+        redisCacheService.clearNamespace(CACHE_NS);
+        log.info("POD 정보 ETL 엔진 캐시 초기화 완료 (REDIS)");
     }
     
     /**
      * 강제 캐시 리셋 (테스트용)
      */
     public void resetCache() {
-        processedDataCache.clear();
+        redisCacheService.clearNamespace(CACHE_NS);
         lastExecutionTime.set(0);
-        log.info("POD 정보 ETL 엔진 캐시 강제 리셋 완료");
+        log.info("POD 정보 ETL 엔진 캐시 강제 리셋 완료 (REDIS)");
     }
     
     // ETLEngine 추상 메서드 구현

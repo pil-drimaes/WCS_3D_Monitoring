@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.ConcurrentHashMap;
+import com.example.WCS_DataStream.etl.service.RedisCacheService;
 
 /**
  * AGV 데이터 ETL 엔진
@@ -41,19 +42,24 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     private final AgvDataService agvDataService;
     private final KafkaProducerService kafkaProducerService;
     private final PostgreSQLDataService postgreSQLDataService;
+    private final RedisCacheService redisCacheService;
+
+    private static final String CACHE_NS = "agv-cache";
     
     // 마지막 실행 시간 추적
     private final AtomicLong lastExecutionTime = new AtomicLong(0);
 
     // 중복 데이터 필터링을 위한 캐시 (uuid_no -> report_time)
-    private final ConcurrentHashMap<String, AgvData> processedDataCache = new ConcurrentHashMap<>();
+    // private final ConcurrentHashMap<String, AgvData> processedDataCache = new ConcurrentHashMap<>();
 
     public AgvDataETLEngine(AgvDataService agvDataService,
                            KafkaProducerService kafkaProducerService,
-                           PostgreSQLDataService postgreSQLDataService) {
+                           PostgreSQLDataService postgreSQLDataService,
+                           RedisCacheService redisCacheService) {
         this.agvDataService = agvDataService;
         this.kafkaProducerService = kafkaProducerService;
         this.postgreSQLDataService = postgreSQLDataService;
+        this.redisCacheService = redisCacheService;
     }
 
     @Override
@@ -216,37 +222,37 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                              data.getUuidNo(), e.getMessage());
                 }
 
-                // 2. 캐시 기반 비교 (전체 필드 비교)
+                // 2. Redis 캐시 기반 비교 (전체 필드 비교)
                 String key = data.getUuidNo();
-                AgvData cached = processedDataCache.get(key);
+                AgvData cached = redisCacheService.get(CACHE_NS, key, AgvData.class);
 
                 if (cached == null) {
                     // 새로운 키의 첫 데이터: 캐시에 저장하고 처리
-                    processedDataCache.put(key, data);
-                    log.debug("새로운 AGV 데이터 감지: uuid={}, report_time={}", key, data.getReportTime());
+                    redisCacheService.set(CACHE_NS, key, data);
+                    log.debug("새로운 AGV 데이터 감지(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
 
                 // 최신 데이터만 캐시에 반영
                 if (data.getReportTime() > cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
-                    processedDataCache.put(key, data); // 최신으로 갱신
+                    redisCacheService.set(CACHE_NS, key, data); // 최신으로 갱신
                     if (!same) {
-                        log.debug("업데이트된 AGV 데이터 감지: uuid={}, old_time={}, new_time={}",
+                        log.debug("업데이트된 AGV 데이터 감지(REDIS): uuid={}, old_time={}, new_time={}",
                                  key, cached.getReportTime(), data.getReportTime());
                         return true;
                     } else {
-                        log.debug("내용 동일로 처리 제외: uuid={}, report_time={}", key, data.getReportTime());
+                        log.debug("내용 동일로 처리 제외(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                         return false;
                     }
                 }
 
                 // 최신이 아니거나 같은 시간: 변경이 있어도 캐시는 갱신하지 않음
                 if (!isSameData(data, cached)) {
-                    log.debug("변경 감지되었으나 최신 아님: uuid={}, cached_time={}, data_time={}",
+                    log.debug("변경 감지되었으나 최신 아님(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
                 } else {
-                    log.debug("중복 AGV 데이터 제외: uuid={}, cached_time={}, data_time={}",
+                    log.debug("중복 AGV 데이터 제외(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
                 }
                 return false;
@@ -332,17 +338,19 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
      * 캐시 초기화 (메모리 관리용)
      */
     public void clearCache() {
-        processedDataCache.clear();
-        log.info("AGV 데이터 ETL 엔진 캐시 초기화 완료");
+        // processedDataCache.clear();
+        redisCacheService.clearNamespace(CACHE_NS);
+        log.info("AGV 데이터 ETL 엔진 캐시 초기화 완료 (REDIS)");
     }
     
     /**
      * 강제 캐시 리셋 (테스트용)
      */
     public void resetCache() {
-        processedDataCache.clear();
+        // processedDataCache.clear();
+        redisCacheService.clearNamespace(CACHE_NS);
         lastExecutionTime.set(0);
-        log.info("AGV 데이터 ETL 엔진 캐시 강제 리셋 완료");
+        log.info("AGV 데이터 ETL 엔진 캐시 강제 리셋 완료 (REDIS)");
     }
     
 
