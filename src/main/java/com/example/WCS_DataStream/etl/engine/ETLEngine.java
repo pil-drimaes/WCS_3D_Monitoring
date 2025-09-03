@@ -19,7 +19,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * 데이터 추출, 변환, 적재와 풀링 로직을 하나로 통합하여 관리합니다.
  * 
  * @author AGV Monitoring System
- * @version 3.0
+ * @version 1.0
  */
 public abstract class ETLEngine<T> {
     
