@@ -6,9 +6,7 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.scheduling.annotation.Scheduled;
 
-import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -54,17 +52,7 @@ public abstract class BaseETLScheduler<T> {
      * 기본 ETL 설정 생성
      */
     protected ETLConfig createDefaultConfig() {
-        ETLConfig config = new ETLConfig();
-        config.setPullInterval(Duration.ofMillis(100)); // 0.1초
-        config.setBatchSize(100);
-        config.setStrategy(ETLConfig.PullingStrategy.HYBRID);
-        config.setExecutionInterval(Duration.ofMillis(100));
-        config.setValidationEnabled(true);
-        config.setTransformationEnabled(true);
-        config.setErrorHandlingMode(ETLConfig.ErrorHandlingMode.CONTINUE);
-        config.setRetryCount(3);
-        config.setRetryInterval(Duration.ofSeconds(5));
-        return config;
+        return new ETLConfig();
     }
     
     /**
@@ -99,7 +87,7 @@ public abstract class BaseETLScheduler<T> {
     /**
      * ETL 프로세스 실행 (공통 로직)
      */
-    @Scheduled(fixedRate = 100) // 0.1초마다 실행
+    // @Scheduled(fixedRate = 100) // 0.1초마다 실행 (도메인별 주기 설정으로 이동)
     public void executeETLProcess() {
         try {
             if (!initialized) {

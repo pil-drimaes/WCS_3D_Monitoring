@@ -5,7 +5,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
+import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
+
+import java.util.concurrent.TimeUnit;
 
 /**
  * Kafka Producer 서비스
@@ -26,6 +29,34 @@ public class KafkaProducerService {
     
     public KafkaProducerService(KafkaTemplate<String, Object> kafkaTemplate) {
         this.kafkaTemplate = kafkaTemplate;
+    }
+    
+    /**
+     * 콜백 + (옵션) 동기 전송 지원
+     */
+    public boolean sendMessageWithCallback(String topic, String key, Object value, boolean sync) {
+        try {
+            var future = kafkaTemplate.send(topic, key, value);
+            future.whenComplete((result, ex) -> {
+                if (ex != null) {
+                    log.error("Kafka send failed: topic={}, key={}, error={}", topic, key, ex.getMessage(), ex);
+                } else if (result != null && result.getRecordMetadata() != null) {
+                    log.info("Kafka sent: topic={}, partition={}, offset={}",
+                            result.getRecordMetadata().topic(),
+                            result.getRecordMetadata().partition(),
+                            result.getRecordMetadata().offset());
+                } else {
+                    log.info("Kafka sent: topic={}, metadata is null", topic);
+                }
+            });
+            if (sync) {
+                future.get(5, TimeUnit.SECONDS);
+            }
+            return true;
+        } catch (Exception e) {
+            log.error("Kafka send exception: topic={}, key={}, error={}", topic, key, e.getMessage(), e);
+            return false;
+        }
     }
     
     /**
