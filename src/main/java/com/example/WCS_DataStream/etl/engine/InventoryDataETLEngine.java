@@ -276,7 +276,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                     inventoryInfo.getStatus()
                 );
                 
-                kafkaProducerService.sendMessage("inventory-updates", message);
+                kafkaProducerService.sendMessageWithCallback("inventory-updates", inventoryInfo.getUuidNo(), message, true);
             }
             
             log.debug("재고 정보 Kafka 메시지 {}개 발행 완료", inventoryDataList.size());
