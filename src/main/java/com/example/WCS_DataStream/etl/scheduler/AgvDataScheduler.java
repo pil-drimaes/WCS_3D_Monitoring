@@ -84,6 +84,7 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
     protected void processInitialData() {
         if (initialDataProcessed) return;
         try {
+            etlEngine.resetCache();
             List<AgvData> initialData = etlEngine.executeFullLoad(); // 변경
             for (AgvData d : initialData) {
                 processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
@@ -124,7 +125,8 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
         processedIds.clear();
         lastProcessedTime.set(null);
         initialDataProcessed = false;
-        log.info("Cleared AGV data scheduler cache");
+        etlEngine.resetCache();
+        log.info("Cleared AGV data scheduler cache and engine cache (REDIS)");
     }
     
     /**

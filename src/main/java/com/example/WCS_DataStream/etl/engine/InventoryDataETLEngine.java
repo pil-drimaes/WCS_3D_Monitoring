@@ -79,7 +79,8 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                 throw new ETLEngineException("PostgreSQL inventory_info 테이블이 존재하지 않음");
             }
             List<InventoryInfo> allData = inventoryDataService.getAllInventoryData();
-            List<InventoryInfo> filtered = filterDuplicateData(allData);
+            List<InventoryInfo> transformed = transformData(allData);
+            List<InventoryInfo> filtered = filterDuplicateData(transformed);
             return processETLInternal(filtered);
         } catch (Exception e) {
             throw new ETLEngineException("재고 전체 로드 중 오류", e);
@@ -192,24 +193,12 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                 
                 if (cached == null) {
                     // 첫 데이터: 캐시에 저장하고 포함
-                    try {
-                        InventoryInfo latest = postgreSQLDataService.getLatestInventoryByInventory(data.getInventory());
-                        if (latest != null && isSameData(data, latest)) {
-                            // 내용 동일: report_time만 캐시에 반영하고 제외
-                            latest.setReportTime(data.getReportTime());
-                            redisCacheService.set(CACHE_NS, key, latest);
-                            log.debug("내용 동일로 처리 제외(DB fallback, report_time만 갱신): uuid={}, report_time={}", key, data.getReportTime());
-                            return false;
-                        }
-                    } catch (Exception e) {
-                        log.debug("DB fallback 비교 실패(inventory): uuid={}, error={}", key, e.getMessage());
-                    }
                     redisCacheService.set(CACHE_NS, key, data);
                     log.debug("첫 재고 데이터 캐시 저장(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
                 
-                if (data.getReportTime() > cached.getReportTime()) {
+                if (data.getReportTime() >= cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
                     if (same) {
                         // 내용 동일: report_time만 갱신하고 제외
@@ -331,10 +320,21 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     @Override
     protected List<InventoryInfo> extractData() throws ETLEngineException {
         try {
-            long wm = postgreSQLDataService.getInventoryLastProcessedTime();
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
+            long pgMs = postgreSQLDataService.getInventoryLastProcessedTime();
+            java.time.LocalDateTime pgTime = java.time.Instant.ofEpochMilli(pgMs)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
-            return inventoryDataService.getInventoryDataAfterTimestamp(lastProcessedTime);
+
+            java.time.LocalDateTime wcsLatest;
+            try {
+                wcsLatest = inventoryDataService.getLatestTimestamp();
+            } catch (Exception ignore) {
+                wcsLatest = pgTime;
+            }
+            java.time.LocalDateTime watermark = (wcsLatest != null && wcsLatest.isBefore(pgTime))
+                ? wcsLatest.minusSeconds(1)
+                : pgTime;
+
+            return inventoryDataService.getInventoryDataAfterTimestamp(watermark);
         } catch (Exception e) {
             throw new ETLEngineException("Error during data extraction", e);
         }

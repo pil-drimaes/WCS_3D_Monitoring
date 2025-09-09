@@ -73,6 +73,7 @@ public class InventoryDataScheduler extends BaseETLScheduler<InventoryInfo> {
     protected void processInitialData() {
         if (initialDataProcessed) return;
         try {
+            etlEngine.resetCache();
             List<InventoryInfo> initialData = etlEngine.executeFullLoad(); 
             for (InventoryInfo d : initialData) {
                 processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
@@ -112,7 +113,8 @@ public class InventoryDataScheduler extends BaseETLScheduler<InventoryInfo> {
         processedIds.clear();
         lastProcessedTime.set(null);
         initialDataProcessed = false;
-        log.info("재고 정보 스케줄러 캐시 초기화 완료");
+        etlEngine.resetCache();
+        log.info("재고 정보 스케줄러 캐시 및 엔진 캐시 초기화 완료 (REDIS)");
     }
     
 

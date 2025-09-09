@@ -77,7 +77,8 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
                 throw new ETLEngineException("PostgreSQL pod_info 테이블이 존재하지 않음");
             }
             List<PodInfo> allData = podDataService.getAllPodData();
-            List<PodInfo> filtered = filterDuplicateData(allData);
+            List<PodInfo> transformed = transformData(allData);
+            List<PodInfo> filtered = filterDuplicateData(transformed);
             return processETLInternal(filtered);
         } catch (Exception e) {
             throw new ETLEngineException("POD 전체 로드 중 오류", e);
@@ -201,24 +202,12 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
                 
                 if (cached == null) {
                     // 첫 데이터: 캐시에 저장하고 포함
-                    try {
-                        PodInfo latest = postgreSQLDataService.getLatestPodByPodId(data.getPodId());
-                        if (latest != null && isSameData(data, latest)) {
-                            // 내용 동일: report_time만 캐시에 반영하고 제외
-                            latest.setReportTime(data.getReportTime());
-                            redisCacheService.set(CACHE_NS, key, latest);
-                            log.debug("내용 동일로 처리 제외(DB fallback, report_time만 갱신): uuid={}, report_time={}", key, data.getReportTime());
-                            return false;
-                        }
-                    } catch (Exception e) {
-                        log.debug("DB fallback 비교 실패(pod): uuid={}, error={}", key, e.getMessage());
-                    }
                     redisCacheService.set(CACHE_NS, key, data);
                     log.debug("첫 POD 데이터 캐시 저장(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
                 
-                if (data.getReportTime() > cached.getReportTime()) {
+                if (data.getReportTime() >= cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
                     if (same) {
                         // 내용 동일: report_time만 갱신하고 제외
@@ -346,10 +335,21 @@ public class PodDataETLEngine extends ETLEngine<PodInfo> {
     @Override
     protected List<PodInfo> extractData() throws ETLEngineException {
         try {
-            long wm = postgreSQLDataService.getPodLastProcessedTime();
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
+            long pgMs = postgreSQLDataService.getPodLastProcessedTime();
+            java.time.LocalDateTime pgTime = java.time.Instant.ofEpochMilli(pgMs)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
-            return podDataService.getPodDataAfterTimestamp(lastProcessedTime);
+
+            java.time.LocalDateTime wcsLatest;
+            try {
+                wcsLatest = podDataService.getLatestTimestamp();
+            } catch (Exception ignore) {
+                wcsLatest = pgTime;
+            }
+            java.time.LocalDateTime watermark = (wcsLatest != null && wcsLatest.isBefore(pgTime))
+                ? wcsLatest.minusSeconds(1)
+                : pgTime;
+
+            return podDataService.getPodDataAfterTimestamp(watermark);
         } catch (Exception e) {
             throw new ETLEngineException("Error during data extraction", e);
         }

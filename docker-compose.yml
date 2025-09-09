@@ -15,7 +15,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
       - ./postgresql_schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
     networks:
-      - cdc-network
+      - dataStream-network
     restart: unless-stopped
 
   # Zookeeper (Kafka 의존성) - 최신 패치 버전
@@ -28,7 +28,7 @@ services:
     ports:
       - "2181:2181"
     networks:
-      - cdc-network
+      - dataStream-network
     restart: unless-stopped
 
   # Kafka - 최신 패치 버전
@@ -54,7 +54,7 @@ services:
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
       KAFKA_DELETE_TOPIC_ENABLE: 'true'
     networks:
-      - cdc-network
+      - dataStream-network
     restart: unless-stopped
 
   # Kafka UI (선택사항)
@@ -70,7 +70,7 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
       KAFKA_CLUSTERS_0_ZOOKEEPER: zookeeper:2181
     networks:
-      - cdc-network
+      - dataStream-network
     restart: unless-stopped
 
   # pgAdmin (PostgreSQL 관리 도구, 선택사항)
@@ -85,7 +85,7 @@ services:
     depends_on:
       - postgres
     networks:
-      - cdc-network
+      - dataStream-network
     restart: unless-stopped
 
   # Redis (캐시)
@@ -111,5 +111,5 @@ volumes:
   redis_data:
 
 networks:
-  cdc-network:
+  dataStream-network:
     driver: bridge 

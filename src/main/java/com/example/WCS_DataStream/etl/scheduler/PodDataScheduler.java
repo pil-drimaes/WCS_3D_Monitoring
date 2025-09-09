@@ -71,6 +71,7 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
     protected void processInitialData() {
         if (initialDataProcessed) return;
         try {
+            etlEngine.resetCache();
             List<PodInfo> initialData = etlEngine.executeFullLoad(); // 변경
             for (PodInfo d : initialData) {
                 processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
@@ -110,7 +111,8 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
         processedIds.clear();
         lastProcessedTime.set(null);
         initialDataProcessed = false;
-        log.info("POD 정보 스케줄러 캐시 초기화 완료");
+        etlEngine.resetCache();
+        log.info("POD 정보 스케줄러 캐시 및 엔진 캐시 초기화 완료 (REDIS)");
     }
     
 
