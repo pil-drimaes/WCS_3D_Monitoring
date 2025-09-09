@@ -87,7 +87,8 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                  throw new ETLEngineException("PostgreSQL robot_info 테이블이 존재하지 않음");
              }
              List<AgvData> allData = agvDataService.getAllAgvData();
-             List<AgvData> filtered = filterDuplicateData(allData);
+             List<AgvData> transformed = transformData(allData);
+             List<AgvData> filtered = filterDuplicateData(transformed);
              return processETLInternal(filtered);
          } catch (Exception e) {
              throw new ETLEngineException("AGV 전체 로드 중 오류", e);
@@ -228,19 +229,6 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
 
                 // 캐시가 없으면 첫 데이터로 간주: 캐시에 저장하고 포함
                 if (cached == null) {
-                    // DB 최신 스냅샷과 비교 (fallback)
-                    try {
-                        AgvData latest = postgreSQLDataService.getLatestAgvDataByRobotNo(data.getRobotNo());
-                        if (latest != null && isSameData(data, latest)) {
-                            // 내용 동일: DB 스냅샷의 report_time만 갱신하여 캐시 저장, 제외
-                            latest.setReportTime(data.getReportTime());
-                            redisCacheService.set(CACHE_NS, key, latest);
-                            log.debug("내용 동일로 처리 제외(DB fallback, report_time만 갱신): uuid={}, report_time={}", key, data.getReportTime());
-                            return false;
-                        }
-                    } catch (Exception e) {
-                        log.debug("DB fallback 비교 실패: uuid={}, error={}", key, e.getMessage());
-                    }
                     // 첫 AGV 데이터로 캐시에 저장하고 포함
                     redisCacheService.set(CACHE_NS, key, data);
                     log.debug("첫 AGV 데이터 캐시 저장(REDIS): uuid={}, report_time={}", key, data.getReportTime());
@@ -248,7 +236,7 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                 }
 
                 // 최신 데이터만 비교
-                if (data.getReportTime() > cached.getReportTime()) {
+                if (data.getReportTime() >= cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
                     if (same) {
                         // 내용 동일: report_time만 갱신하여 캐시에 반영하고 제외
@@ -378,10 +366,21 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     @Override
     protected List<AgvData> extractData() throws ETLEngineException {
         try {
-            long wm = postgreSQLDataService.getRobotLastProcessedTime();
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
+            long pgMs = postgreSQLDataService.getRobotLastProcessedTime();
+            java.time.LocalDateTime pgTime = java.time.Instant.ofEpochMilli(pgMs)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
-            return agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
+
+            java.time.LocalDateTime wcsLatest;
+            try {
+                wcsLatest = agvDataService.getLatestTimestamp();
+            } catch (Exception ignore) {
+                wcsLatest = pgTime;
+            }
+            java.time.LocalDateTime watermark = (wcsLatest != null && wcsLatest.isBefore(pgTime))
+                ? wcsLatest.minusSeconds(1)
+                : pgTime;
+
+            return agvDataService.getAgvDataAfterTimestamp(watermark);
         } catch (Exception e) {
             throw new ETLEngineException("Error during data extraction", e);
         }
