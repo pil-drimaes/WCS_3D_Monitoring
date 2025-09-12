@@ -19,7 +19,7 @@ build-sonar:
       - "${SONAR_USER_HOME}/cache"
       - sonar-scanner/
       
-  script: gradle sonar
+  script: gradle build sonar
   allow_failure: true
   rules:
     - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
