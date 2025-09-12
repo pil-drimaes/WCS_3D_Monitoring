@@ -18,8 +18,6 @@ import java.util.List;
 /**
  * 독립적인 WCS DB 서비스
  * 
- * 기존 CDC 시스템과 완전히 분리된 새로운 ETL 시스템용 서비스
- * 자체 데이터소스를 생성하여 사용합니다.
  * 
  * @author AGV Monitoring System
  * @version 2.0

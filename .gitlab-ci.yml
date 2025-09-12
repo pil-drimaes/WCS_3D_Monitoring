@@ -1,28 +1,26 @@
 image: gradle:8.10.0-jdk21-jammy
 
 variables:
-  SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
-  GIT_DEPTH: "0"  # Tells git to fetch all the branches of the project, required by the analysis task
+  SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"   # Sonar 캐시
+  GIT_DEPTH: "0"                                # 전체 히스토리(분석용)
+  GRADLE_USER_HOME: "${CI_PROJECT_DIR}/.gradle" # Gradle 캐시
 
 stages:
   - build-sonar
 
-
 build-sonar:
   stage: build-sonar
-  
-  
   cache:
     policy: pull-push
     key: "sonar-cache-$CI_COMMIT_REF_SLUG"
     paths:
       - "${SONAR_USER_HOME}/cache"
-      - sonar-scanner/
-      
-  script: gradle build sonar
+      - "${GRADLE_USER_HOME}"
+      - "build"
+  script:
+    - chmod +x ./gradlew || true
+    - ./gradlew clean build            # <= 이 단계에서 바이트코드 생성
+    - ./gradlew sonarqube              # <= 분석 태스크 (구버전 'sonar' 대신)
   allow_failure: true
   rules:
-    - if: $CI_PIPELINE_SOURCE == 'merge_request_event'
-    - if: $CI_COMMIT_BRANCH == 'master'
-    - if: $CI_COMMIT_BRANCH == 'main'
-    - if: $CI_COMMIT_BRANCH == 'develop'
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
