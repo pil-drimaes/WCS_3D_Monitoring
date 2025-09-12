@@ -1,4 +1,4 @@
-image: gradle:8.10.0-jdk17-jammy
+image: gradle:8.10.0-jdk21-jammy
 
 variables:
   SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"  # Defines the location of the analysis task cache
