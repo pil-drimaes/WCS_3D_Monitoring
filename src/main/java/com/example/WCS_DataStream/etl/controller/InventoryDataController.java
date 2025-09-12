@@ -141,33 +141,7 @@ public class InventoryDataController {
         }
     }
     
-    /**
-     * 특정 재고 정보 조회
-     * 
-     * @param inventory 재고번호
-     * @return 재고 정보
-     */
-    @GetMapping("/{inventory}")
-    public ResponseEntity<InventoryInfo> getInventoryByInventory(@PathVariable String inventory) {
-        try {
-            // 실제 구현에서는 inventory 번호로 조회하는 메서드가 필요합니다
-            List<InventoryInfo> allData = inventoryDataService.getAllInventoryData();
-            InventoryInfo result = allData.stream()
-                .filter(data -> inventory.equals(data.getInventory()))
-                .findFirst()
-                .orElse(null);
-            
-            if (result != null) {
-                return ResponseEntity.ok(result);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-            
-        } catch (Exception e) {
-            log.error("재고 정보 조회 실패: inventory={}, error={}", inventory, e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
+
 
     @PostMapping("/reset-cache")
     public ResponseEntity<Map<String, Object>> resetCache() {
