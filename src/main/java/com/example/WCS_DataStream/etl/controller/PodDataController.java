@@ -156,34 +156,7 @@ public class PodDataController {
             return ResponseEntity.ok(status);
         }
     }
-    
-    /**
-     * 특정 POD 정보 조회
-     * 
-     * @param podId POD ID
-     * @return POD 정보
-     */
-    @GetMapping("/{podId}")
-    public ResponseEntity<PodInfo> getPodById(@PathVariable String podId) {
-        try {
-            // 실제 구현에서는 POD ID로 조회하는 메서드가 필요합니다
-            List<PodInfo> allData = podDataService.getAllPodData();
-            PodInfo result = allData.stream()
-                .filter(data -> podId.equals(data.getPodId()))
-                .findFirst()
-                .orElse(null);
-            
-            if (result != null) {
-                return ResponseEntity.ok(result);
-            } else {
-                return ResponseEntity.notFound().build();
-            }
-            
-        } catch (Exception e) {
-            log.error("POD 정보 조회 실패: podId={}, error={}", podId, e.getMessage(), e);
-            return ResponseEntity.internalServerError().build();
-        }
-    }
+
 
     @PostMapping("/reset-cache")
     public ResponseEntity<Map<String, Object>> resetCache() {
