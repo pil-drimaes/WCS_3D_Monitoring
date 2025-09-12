@@ -177,37 +177,7 @@ public class AgvDataController {
         }
     }
     
-    /**
-     * ETL 엔진 재초기화
-     * 
-     * @return ETL 재초기화 결과
-     */
-    @PostMapping("/reinitialize")
-    public ResponseEntity<Map<String, Object>> reinitializeETL() {
-        Map<String, Object> result = new HashMap<>();
-        
-        try {
-            log.info("ETL 엔진 재초기화 요청됨");
-            
-            // ETL 엔진 재초기화 (현재는 단순히 상태만 리셋)
-            // etlEngine.reinitialize(); // 메서드가 없으므로 주석 처리
-            
-            result.put("success", true);
-            result.put("message", "ETL 엔진 재초기화 완료");
-            result.put("timestamp", System.currentTimeMillis());
-            
-            log.info("ETL 엔진 재초기화 완료");
-            return ResponseEntity.ok(result);
-            
-        } catch (Exception e) {
-            log.error("Error reinitializing ETL: {}", e.getMessage(), e);
-            result.put("success", false);
-            result.put("message", "ETL 엔진 재초기화 중 오류: " + e.getMessage());
-            result.put("timestamp", System.currentTimeMillis());
-            return ResponseEntity.ok(result);
-        }
-    }
-    
+
     /**
      * ETL 엔진 캐시 리셋
      * 
