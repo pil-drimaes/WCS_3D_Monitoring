@@ -64,6 +64,10 @@ dependencies {
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 	
 	implementation 'org.springframework:spring-messaging'
+	
+	// Micrometer Prometheus registry
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+	
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	annotationProcessor 'org.projectlombok:lombok'

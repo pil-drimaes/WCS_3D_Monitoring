@@ -1,0 +1,22 @@
+global:
+  scrape_interval: 5s
+
+scrape_configs:
+  - job_name: 'wcs_datastream'
+    metrics_path: /actuator/prometheus
+    static_configs:
+      - targets: ['host.docker.internal:8081']
+        labels:
+          app: 'wcs-datastream'
+
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          db: 'cdcqueue'
+
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          cache: 'redis-cache' 
