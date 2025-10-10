@@ -8,10 +8,14 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.stream.Collectors;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+
 @Service
 public class RedisCacheService {
 
     private final RedisTemplate<String, Object> redisTemplate;
+    private final ObjectMapper objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     public RedisCacheService(RedisTemplate<String, Object> redisTemplate) {
         this.redisTemplate = redisTemplate;
@@ -21,6 +25,15 @@ public class RedisCacheService {
         Object v = redisTemplate.opsForValue().get(namespacedKey(namespace, key));
         if (v == null) return null;
         if (clazz.isInstance(v)) return clazz.cast(v);
+        try {
+            if (v instanceof java.util.Map) {
+                return objectMapper.convertValue(v, clazz);
+            }
+            if (v instanceof String s) {
+                return objectMapper.readValue(s, clazz);
+            }
+        } catch (Exception ignore) {
+        }
         return null;
     }
 

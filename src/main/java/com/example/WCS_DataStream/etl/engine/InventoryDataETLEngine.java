@@ -79,7 +79,8 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                 throw new ETLEngineException("PostgreSQL inventory_info 테이블이 존재하지 않음");
             }
             List<InventoryInfo> allData = inventoryDataService.getAllInventoryData();
-            List<InventoryInfo> filtered = filterDuplicateData(allData);
+            List<InventoryInfo> transformed = transformData(allData);
+            List<InventoryInfo> filtered = filterDuplicateData(transformed);
             return processETLInternal(filtered);
         } catch (Exception e) {
             throw new ETLEngineException("재고 전체 로드 중 오류", e);
@@ -173,6 +174,7 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                     return true; // UUID나 report_time이 없으면 처리
                 }
                 
+                // 1) PostgreSQL 중복 체크 (uuid_no, report_time)
                 try {
                     boolean existsInPostgres = postgreSQLDataService.isInventoryDataExists(data.getUuidNo(), data.getReportTime());
                     if (existsInPostgres) {
@@ -181,33 +183,39 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
                         return false;
                     }
                 } catch (Exception e) {
-                    log.warn("PostgreSQL 중복 체크 실패, 캐시 기반으로 처리: uuid={}, error={}", 
+                    log.warn("PostgreSQL 중복 체크 실패, Redis 비교로 진행: uuid={}, error={}", 
                              data.getUuidNo(), e.getMessage());
                 }
                 
-                // Redis 캐시 비교
+                // 2) Redis 캐시 비교
                 String key = data.getUuidNo();
                 InventoryInfo cached = redisCacheService.get(CACHE_NS, key, InventoryInfo.class);
                 
                 if (cached == null) {
+                    // 첫 데이터: 캐시에 저장하고 포함
                     redisCacheService.set(CACHE_NS, key, data);
-                    log.debug("새로운 재고 데이터 감지(REDIS): uuid={}, report_time={}", key, data.getReportTime());
+                    log.debug("첫 재고 데이터 캐시 저장(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
                 
-                if (data.getReportTime() > cached.getReportTime()) {
+                if (data.getReportTime() >= cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
-                    redisCacheService.set(CACHE_NS, key, data);
-                    if (!same) {
-                        log.debug("업데이트된 재고 데이터 감지(REDIS): uuid={}, old_time={}, new_time={}", 
+                    if (same) {
+                        // 내용 동일: report_time만 갱신하고 제외
+                        cached.setReportTime(data.getReportTime());
+                        redisCacheService.set(CACHE_NS, key, cached);
+                        log.debug("내용 동일로 처리 제외(REDIS, report_time만 갱신): uuid={}, report_time={}", key, data.getReportTime());
+                        return false;
+                    } else {
+                        // 내용 변경: 전체 갱신 후 포함
+                        redisCacheService.set(CACHE_NS, key, data);
+                        log.debug("업데이트된 재고 데이터 감지(REDIS): uuid={}, old_time={}, new_time={}",
                                  key, cached.getReportTime(), data.getReportTime());
                         return true;
-                    } else {
-                        log.debug("내용 동일로 처리 제외(REDIS): uuid={}, report_time={}", key, data.getReportTime());
-                        return false;
                     }
                 }
                 
+                // 최신이 아니거나 같은 시간: 제외
                 if (!isSameData(data, cached)) {
                     log.debug("변경 감지되었으나 최신 아님(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
@@ -312,10 +320,21 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     @Override
     protected List<InventoryInfo> extractData() throws ETLEngineException {
         try {
-            long wm = postgreSQLDataService.getInventoryLastProcessedTime();
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
+            long pgMs = postgreSQLDataService.getInventoryLastProcessedTime();
+            java.time.LocalDateTime pgTime = java.time.Instant.ofEpochMilli(pgMs)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
-            return inventoryDataService.getInventoryDataAfterTimestamp(lastProcessedTime);
+
+            java.time.LocalDateTime wcsLatest;
+            try {
+                wcsLatest = inventoryDataService.getLatestTimestamp();
+            } catch (Exception ignore) {
+                wcsLatest = pgTime;
+            }
+            java.time.LocalDateTime watermark = (wcsLatest != null && wcsLatest.isBefore(pgTime))
+                ? wcsLatest.minusSeconds(1)
+                : pgTime;
+
+            return inventoryDataService.getInventoryDataAfterTimestamp(watermark);
         } catch (Exception e) {
             throw new ETLEngineException("Error during data extraction", e);
         }
@@ -346,7 +365,24 @@ public class InventoryDataETLEngine extends ETLEngine<InventoryInfo> {
     
     @Override
     protected boolean isSameData(InventoryInfo data1, InventoryInfo data2) {
-        return data1 != null && data1.equals(data2);
+        InventoryInfo a = data1, b = data2;
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        // 설비/아이템 식별(변하지 않는 키)
+        boolean sameIdentity =
+            java.util.Objects.equals(a.getUuidNo(), b.getUuidNo()) &&
+            java.util.Objects.equals(a.getInventory(), b.getInventory());
+        if (!sameIdentity) return false;
+
+        // 변화 감지 대상 필드만 비교: newQty
+        return java.util.Objects.equals(a.getBatchNum(), b.getBatchNum())
+            && java.util.Objects.equals(a.getUnitload(), b.getUnitload())
+            && java.util.Objects.equals(a.getSku(), b.getSku())
+            && java.util.Objects.equals(a.getPreQty(), b.getPreQty())
+            && java.util.Objects.equals(a.getNewQty(), b.getNewQty())
+            && java.util.Objects.equals(a.getOriginOrder(), b.getOriginOrder())
+            && java.util.Objects.equals(a.getStatus(), b.getStatus());
+            // && java.util.Objects.equals(a.getReportTime(), b.getReportTime());
     }
 
     @Override

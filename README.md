@@ -23,7 +23,7 @@ WCS(Warehouse Control System) 데이터를 주기적으로 추출(Extract)·변�
    - 새 레코드의 `report_time`이 캐시보다 클 때만 캐시를 갱신합니다.
 
 ## 시스템 아키텍처
-
+  
 ```
 WCS_DB (Source) → ETL 엔진(Extract/Transform/Filter) → PostgreSQL (Target) + Kafka
       ↑                 ↓                                 ↓
@@ -124,3 +124,59 @@ java -jar build/libs/WCS_DataStream-*.jar
 1. WCS DB와 PostgreSQL, (사용 시) Kafka 브로커가 실행 중이어야 합니다.
 2. 스케줄링 주기가 매우 짧으므로 시스템 리소스를 고려해 조정하세요.
 3. 비교 기준 변경 시 각 엔진의 `isSameData(...)`만 수정하면 됩니다. 
+
+## Software 구성도
+
+| 영역 | 구성요소 | 주요 역할 | 비고 |
+|---|---|---|---|
+| 데이터 소스 | WCS DB(SQL Server) | 원천 데이터(AGV/Inventory/POD) 제공 | 읽기 전용 |
+| 애플리케이션 | 스케줄러(Base/도메인) | Full/Incremental 트리거 | 주기 설정 가능 |
+| 애플리케이션 | ETL 엔진(AGV/Inventory/POD) | Extract/Transform/Filter/Load | 캐시·중복방지 포함 |
+| 애플리케이션 | 서비스 계층 | WCS 조회, PostgreSQL 저장, Kafka 전송, Redis 캐시 | 트랜잭션/예외 처리 |
+| 미들웨어 | Redis | 캐시 비교·중복 제거 | 선택 필수(성능) |
+| 미들웨어 | Kafka | 변경 이벤트 발행 | 선택 기능 |
+| 타깃 DB | PostgreSQL | 적재/이력 저장 | 운영 저장소 |
+| 모니터링 | Prometheus | 메트릭 수집(/actuator/prometheus, exporters) | 스크랩 |
+| 시각화 | Grafana | 메트릭 대시보드 | 알림 설정 가능 |
+
+## Software Layer 구성도
+
+| Layer | 서브 구성요소 | 책임 | 입출력 |
+|---|---|---|---|
+| Presentation | REST Controller(선택), Grafana 대시보드 | 상태/통계/시각화 | HTTP, 대시보드 |
+| Scheduler | BaseETLScheduler + 도메인 스케줄러 | 주기 트리거, 초기화/강제재처리 | 메소드 호출 |
+| Domain Service | ETL 엔진(AGV/Inventory/POD) | 추출/변환/필터/적재 | 도메인 모델 리스트 |
+| Application Service | WCS/PG/Redis/Kafka 서비스 | DB I/O, 캐시, 메시지 | JDBC, Redis, Kafka |
+| Infrastructure | JdbcTemplate/트랜잭션/설정 | 커넥션/트랜잭션/설정 바인딩 | DataSource, TM |
+| Observability | Actuator, Micrometer, Exporters | 메트릭/헬스 | /actuator, /metrics |
+
+### 서비스 실행 순서
+1) Zookeeper → 2) Kafka → 3) Redis → 4) PostgreSQL → 5) 애플리케이션 → 6) Prometheus → 7) Grafana
+
+### 서비스 수량(기본 도커 컴포즈)
+- App 1, PostgreSQL 1, Redis 1, Zookeeper 1, Kafka 1, Kafka-UI 1, Prometheus 1, Grafana 1, (선택) Exporters 2 
+
+## 환경 구성 표
+
+| 구분 | 항목 | WCS_DataStream |
+|---|---|---|
+| 개발 Framework | Base | Spring Boot 3.5.3 ||  | Front-End | 정적 HTML(대시보드) / Grafana |
+|  | Back-End | Java 21 (JDK 21), Spring Scheduling, WebSocket(선택) |
+| 개발도구 | IDE/Build | IntelliJ/VS Code(선택), Gradle, Docker/Docker Compose |
+|  | JDK | Temurin/OpenJDK 21 |
+| 웹서버 | Web server | Spring Boot 내장 Tomcat 10.1.x |
+|  | WAS | (내장) Tomcat 10.1.x |
+| 소스관리 | 형상관리 | Git (GitLab) |
+|  | 배포도구 | Docker Compose, 컨테이너 기반 배포 |
+| Database | Source(DB) | SQL Server (WCS_DB, 읽기 전용) |
+|  | Target(DB) | PostgreSQL 16.9 (적재/이력) |
+| OS | Web/App Server | Linux (개발 호스트: 5.15 커널), 컨테이너 기반 운영 |
+|  | DB Server | PostgreSQL 컨테이너(16.9) |
+| 미들웨어 | Kafka | Confluent Platform cp-kafka:7.4.10 (Zookeeper 포함) |
+|  | Redis | redis:7.2-alpine (캐시) |
+| 모니터링 | Prometheus | prom/prometheus:latest (스크랩: 앱/Exporters) |
+|  | Grafana | grafana/grafana:latest (대시보드) |
+| 관리도구 | Kafka UI | provectuslabs/kafka-ui:latest |
+|  | pgAdmin | dpage/pgadmin4:latest |
+
+> 비고: 서비스 실행 순서는 README 상단의 "서비스 실행 순서" 참고. 환경은 docker-compose.yml 기준으로 재현됩니다. 

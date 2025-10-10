@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.util.List;
 import java.util.Set;
@@ -28,6 +29,7 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
  * @version 2.0
  */
 @Component
+@ConditionalOnProperty(prefix = "etl.agv", name = "enabled", havingValue = "true")
 public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataScheduler.class);
@@ -84,6 +86,7 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
     protected void processInitialData() {
         if (initialDataProcessed) return;
         try {
+            etlEngine.resetCache();
             List<AgvData> initialData = etlEngine.executeFullLoad(); // 변경
             for (AgvData d : initialData) {
                 processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
@@ -124,7 +127,8 @@ public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
         processedIds.clear();
         lastProcessedTime.set(null);
         initialDataProcessed = false;
-        log.info("Cleared AGV data scheduler cache");
+        etlEngine.resetCache();
+        log.info("Cleared AGV data scheduler cache and engine cache (REDIS)");
     }
     
     /**

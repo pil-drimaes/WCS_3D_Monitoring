@@ -2,7 +2,7 @@ plugins {
 	id 'java'
 	id 'org.springframework.boot' version '3.5.3'
 	id 'io.spring.dependency-management' version '1.1.7'
-	id 'org.sonarqube' version '6.2.0.5505'
+	id "org.sonarqube" version "6.3.1.5724"
 }
 
 ext {
@@ -27,6 +27,14 @@ configurations {
 
 repositories {
 	mavenCentral()
+}
+
+sonar {
+  properties {
+    property "sonar.projectKey", "drimaes_creative-center_dls_3d_da_system_data_stream_18d4229b-3d1f-4d64-90dc-f09dcf77b1a1"
+    property "sonar.projectName", "Data_Stream"
+    property "sonar.qualitygate.wait", true
+  }
 }
 
 dependencies {
@@ -56,6 +64,10 @@ dependencies {
 	implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310'
 	
 	implementation 'org.springframework:spring-messaging'
+	
+	// Micrometer Prometheus registry
+	implementation 'io.micrometer:micrometer-registry-prometheus'
+	
 	compileOnly 'org.projectlombok:lombok'
 	developmentOnly 'org.springframework.boot:spring-boot-devtools'
 	annotationProcessor 'org.projectlombok:lombok'

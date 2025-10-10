@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -24,6 +25,7 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
  * @version 2.0
  */
 @Component
+@ConditionalOnProperty(prefix = "etl.pod", name = "enabled", havingValue = "true")
 public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
     
     private static final Logger log = LoggerFactory.getLogger(PodDataScheduler.class);
@@ -71,6 +73,7 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
     protected void processInitialData() {
         if (initialDataProcessed) return;
         try {
+            etlEngine.resetCache();
             List<PodInfo> initialData = etlEngine.executeFullLoad(); // 변경
             for (PodInfo d : initialData) {
                 processedIds.add(d.getUuidNo() + "_" + d.getReportTime());
@@ -110,7 +113,8 @@ public class PodDataScheduler extends BaseETLScheduler<PodInfo> {
         processedIds.clear();
         lastProcessedTime.set(null);
         initialDataProcessed = false;
-        log.info("POD 정보 스케줄러 캐시 초기화 완료");
+        etlEngine.resetCache();
+        log.info("POD 정보 스케줄러 캐시 및 엔진 캐시 초기화 완료 (REDIS)");
     }
     
 

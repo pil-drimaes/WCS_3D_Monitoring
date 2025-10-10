@@ -87,7 +87,8 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                  throw new ETLEngineException("PostgreSQL robot_info 테이블이 존재하지 않음");
              }
              List<AgvData> allData = agvDataService.getAllAgvData();
-             List<AgvData> filtered = filterDuplicateData(allData);
+             List<AgvData> transformed = transformData(allData);
+             List<AgvData> filtered = filterDuplicateData(transformed);
              return processETLInternal(filtered);
          } catch (Exception e) {
              throw new ETLEngineException("AGV 전체 로드 중 오류", e);
@@ -209,45 +210,50 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
                     return true; // UUID나 report_time이 없으면 처리
                 }
                 
-                // 1. PostgreSQL에서 이미 존재하는지 확인
+                // 1) PostgreSQL에서 (uuid_no, report_time) 중복 여부 확인
                 try {
                     boolean existsInPostgres = postgreSQLDataService.isAgvDataExists(data.getUuidNo(), data.getReportTime());
                     if (existsInPostgres) {
                         log.debug("PostgreSQL에 이미 존재하는 AGV 데이터 제외: uuid={}, report_time={}", 
                                  data.getUuidNo(), data.getReportTime());
-                    return false;
+                        return false;
                     }
                 } catch (Exception e) {
-                    log.warn("PostgreSQL 중복 체크 실패, 캐시 기반으로 처리: uuid={}, error={}", 
+                    log.warn("PostgreSQL 중복 체크 실패, Redis 비교로 진행: uuid={}, error={}", 
                              data.getUuidNo(), e.getMessage());
                 }
 
-                // 2. Redis 캐시 기반 비교 (전체 필드 비교)
+                // 2) Redis 캐시 기반 비교
                 String key = data.getUuidNo();
                 AgvData cached = redisCacheService.get(CACHE_NS, key, AgvData.class);
 
+                // 캐시가 없으면 첫 데이터로 간주: 캐시에 저장하고 포함
                 if (cached == null) {
-                    // 새로운 키의 첫 데이터: 캐시에 저장하고 처리
+                    // 첫 AGV 데이터로 캐시에 저장하고 포함
                     redisCacheService.set(CACHE_NS, key, data);
-                    log.debug("새로운 AGV 데이터 감지(REDIS): uuid={}, report_time={}", key, data.getReportTime());
+                    log.debug("첫 AGV 데이터 캐시 저장(REDIS): uuid={}, report_time={}", key, data.getReportTime());
                     return true;
                 }
 
-                // 최신 데이터만 캐시에 반영
-                if (data.getReportTime() > cached.getReportTime()) {
+                // 최신 데이터만 비교
+                if (data.getReportTime() >= cached.getReportTime()) {
                     boolean same = isSameData(data, cached);
-                    redisCacheService.set(CACHE_NS, key, data); // 최신으로 갱신
-                    if (!same) {
+                    if (same) {
+                        // 내용 동일: report_time만 갱신하여 캐시에 반영하고 제외
+                        cached.setReportTime(data.getReportTime());
+                        redisCacheService.set(CACHE_NS, key, cached);
+                        log.debug("내용 동일로 처리 제외(REDIS, report_time만 갱신): uuid={}, report_time={}", key, data.getReportTime());
+                        return false;
+                    } else {
+                        // 내용 변경: 전체 데이터를 최신으로 캐시에 반영하고 포함
+                        redisCacheService.set(CACHE_NS, key, data);
                         log.debug("업데이트된 AGV 데이터 감지(REDIS): uuid={}, old_time={}, new_time={}",
                                  key, cached.getReportTime(), data.getReportTime());
                         return true;
-                    } else {
-                        log.debug("내용 동일로 처리 제외(REDIS): uuid={}, report_time={}", key, data.getReportTime());
-                        return false;
                     }
                 }
 
-                // 최신이 아니거나 같은 시간: 변경이 있어도 캐시는 갱신하지 않음
+                // 최신이 아니거나 같은 시간: 제외
                 if (!isSameData(data, cached)) {
                     log.debug("변경 감지되었으나 최신 아님(REDIS): uuid={}, cached_time={}, data_time={}",
                               key, cached.getReportTime(), data.getReportTime());
@@ -360,10 +366,21 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
     @Override
     protected List<AgvData> extractData() throws ETLEngineException {
         try {
-            long wm = postgreSQLDataService.getRobotLastProcessedTime();
-            LocalDateTime lastProcessedTime = java.time.Instant.ofEpochMilli(wm)
+            long pgMs = postgreSQLDataService.getRobotLastProcessedTime();
+            java.time.LocalDateTime pgTime = java.time.Instant.ofEpochMilli(pgMs)
                 .atZone(java.time.ZoneId.systemDefault()).toLocalDateTime();
-            return agvDataService.getAgvDataAfterTimestamp(lastProcessedTime);
+
+            java.time.LocalDateTime wcsLatest;
+            try {
+                wcsLatest = agvDataService.getLatestTimestamp();
+            } catch (Exception ignore) {
+                wcsLatest = pgTime;
+            }
+            java.time.LocalDateTime watermark = (wcsLatest != null && wcsLatest.isBefore(pgTime))
+                ? wcsLatest.minusSeconds(1)
+                : pgTime;
+
+            return agvDataService.getAgvDataAfterTimestamp(watermark);
         } catch (Exception e) {
             throw new ETLEngineException("Error during data extraction", e);
         }
@@ -394,8 +411,38 @@ public class AgvDataETLEngine extends ETLEngine<AgvData> {
 
     @Override
     protected boolean isSameData(AgvData data1, AgvData data2) {
-        return data1 != null && data1.equals(data2);
+        AgvData a = data1, b = data2;
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        // 설비 식별(변하지 않는 키): 같지 않으면 변화로 간주
+        boolean sameIdentity =
+            java.util.Objects.equals(a.getUuidNo(), b.getUuidNo()) &&
+            java.util.Objects.equals(a.getRobotNo(), b.getRobotNo());
+        if (!sameIdentity) return false;
+
+        // 변화 감지 대상 필드만 비교
+        return java.util.Objects.equals(a.getMapCode(), b.getMapCode())
+            && java.util.Objects.equals(a.getZoneCode(), b.getZoneCode())
+            && java.util.Objects.equals(a.getStatus(), b.getStatus())
+            && java.util.Objects.equals(a.getManual(), b.getManual())
+            && java.util.Objects.equals(a.getLoaders(), b.getLoaders())
+            // && java.util.Objects.equals(a.getReportTime(), b.getReportTime())
+            && equalsBigDecimal(a.getBattery(), b.getBattery())
+            && java.util.Objects.equals(a.getNodeId(), b.getNodeId())
+            && equalsBigDecimal(a.getPosX(), b.getPosX())
+            && equalsBigDecimal(a.getPosY(), b.getPosY())
+            && equalsBigDecimal(a.getSpeed(), b.getSpeed())
+            && java.util.Objects.equals(a.getTaskId(), b.getTaskId())
+            && java.util.Objects.equals(a.getNextTarget(), b.getNextTarget())
+            && java.util.Objects.equals(a.getPodId(), b.getPodId());
     }
+
+    private boolean equalsBigDecimal(java.math.BigDecimal a, java.math.BigDecimal b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.compareTo(b) == 0;
+    }
+
 
     @Override
     public boolean isHealthy() {

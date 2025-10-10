@@ -93,7 +93,7 @@ public abstract class BaseETLScheduler<T> {
             if (!initialized) {
                 initializeETL();
                 processInitialData(); // 초기 데이터 처리
-                return;
+                log.debug("{} 초기 데이터 처리 이후 증분 처리로 이어집니다", getSchedulerName());
             }
             
             // 강제 재처리 모드인 경우 초기 데이터를 다시 처리
@@ -102,7 +102,7 @@ public abstract class BaseETLScheduler<T> {
                 processInitialData(); // 초기 데이터 재처리
                 disableForceReprocess(); // 강제 재처리 모드 비활성화
                 log.info("{} 강제 재처리 완료, 일반 모드로 전환", getSchedulerName());
-                return;
+                // 초기 재처리 후에도 이번 틱에서 증분 처리까지 수행
             }
             
             // 증분 데이터 처리
