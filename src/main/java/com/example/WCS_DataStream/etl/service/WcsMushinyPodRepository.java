@@ -1,0 +1,54 @@
+package com.example.WCS_DataStream.etl.service;
+
+import com.example.WCS_DataStream.etl.model.vendor.mushiny.MushinyPodInfoRecord;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.stereotype.Service;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.util.List;
+
+@Service
+public class WcsMushinyPodRepository {
+
+    private final JdbcTemplate wcsJdbcTemplate;
+
+    public WcsMushinyPodRepository(JdbcTemplate wcsJdbcTemplate) {
+        this.wcsJdbcTemplate = wcsJdbcTemplate;
+    }
+
+    public List<MushinyPodInfoRecord> fetchIncremental(Timestamp lastTs, String lastUuid, int limit) {
+        String sql = """
+            SELECT TOP (?)
+              UUID, POD_ID, SECTION_ID, ZONE_CODE, LOCATION, POD_DIRECTION, POS_X, POS_Y,
+              INS_DT, INS_USER_ID, UPD_DT, UPD_USER_ID
+            FROM cdc_test.dbo.MUSHINY_POD_INFO WITH (READPAST)
+            WHERE (UPD_DT > ?) OR (UPD_DT = ? AND UUID > ?)
+            ORDER BY UPD_DT ASC, UUID ASC
+        """;
+        return wcsJdbcTemplate.query(sql, ps -> {
+            ps.setInt(1, limit);
+            ps.setTimestamp(2, lastTs);
+            ps.setTimestamp(3, lastTs);
+            ps.setString(4, lastUuid == null ? "" : lastUuid);
+        }, this::mapRow);
+    }
+
+    private MushinyPodInfoRecord mapRow(ResultSet rs, int rowNum) throws SQLException {
+        MushinyPodInfoRecord r = new MushinyPodInfoRecord();
+        r.setUuid(rs.getString("UUID"));
+        r.setPodId(rs.getString("POD_ID"));
+        r.setSectionId(rs.getInt("SECTION_ID"));
+        r.setZoneCode(rs.getString("ZONE_CODE"));
+        r.setLocation(rs.getString("LOCATION"));
+        r.setPodDirection(rs.getString("POD_DIRECTION"));
+        r.setPosX(rs.getBigDecimal("POS_X"));
+        r.setPosY(rs.getBigDecimal("POS_Y"));
+        r.setInsDt(rs.getTimestamp("INS_DT"));
+        r.setInsUserId(rs.getString("INS_USER_ID"));
+        r.setUpdDt(rs.getTimestamp("UPD_DT"));
+        r.setUpdUserId(rs.getString("UPD_USER_ID"));
+        return r;
+    }
+} 

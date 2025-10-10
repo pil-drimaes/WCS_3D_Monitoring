@@ -7,6 +7,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 
 import java.util.List;
 import java.util.Set;
@@ -28,6 +29,7 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
  * @version 2.0
  */
 @Component
+@ConditionalOnProperty(prefix = "etl.agv", name = "enabled", havingValue = "true")
 public class AgvDataScheduler extends BaseETLScheduler<AgvData> {
     
     private static final Logger log = LoggerFactory.getLogger(AgvDataScheduler.class);

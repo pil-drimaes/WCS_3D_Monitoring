@@ -3,10 +3,16 @@ package com.example.WCS_DataStream.etl.common;
 import com.example.WCS_DataStream.etl.engine.AgvDataETLEngine;
 import com.example.WCS_DataStream.etl.engine.InventoryDataETLEngine;
 import com.example.WCS_DataStream.etl.engine.PodDataETLEngine;
+import com.example.WCS_DataStream.etl.engine.AntRobotEtlEngine;
+import com.example.WCS_DataStream.etl.engine.MushinyAgvEtlEngine;
+import com.example.WCS_DataStream.etl.engine.AntFlypickEtlEngine;
+import com.example.WCS_DataStream.etl.engine.AntPodEtlEngine;
+import com.example.WCS_DataStream.etl.engine.MushinyPodEtlEngine;
 import com.example.WCS_DataStream.etl.ETLStatistics;
 import io.micrometer.core.instrument.FunctionCounter;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -16,34 +22,43 @@ import java.time.ZoneId;
 public class EtlMetricsBinder {
 
     public EtlMetricsBinder(MeterRegistry registry,
-                            AgvDataETLEngine agv,
-                            InventoryDataETLEngine inv,
-                            PodDataETLEngine pod) {
-        // 최근 실행 시간 (통계의 lastExecutionTime 사용)
-        Gauge.builder("etl_last_execution_epoch_ms", () -> toEpochMs(agv.getStatistics()))
-                .tag("domain", "agv").register(registry);
-        Gauge.builder("etl_last_execution_epoch_ms", () -> toEpochMs(inv.getStatistics()))
-                .tag("domain", "inventory").register(registry);
-        Gauge.builder("etl_last_execution_epoch_ms", () -> toEpochMs(pod.getStatistics()))
-                .tag("domain", "pod").register(registry);
+                            ObjectProvider<AgvDataETLEngine> agv,
+                            ObjectProvider<InventoryDataETLEngine> inv,
+                            ObjectProvider<PodDataETLEngine> pod,
+                            ObjectProvider<AntRobotEtlEngine> antRobot,
+                            ObjectProvider<MushinyAgvEtlEngine> mushinyAgv,
+                            ObjectProvider<AntFlypickEtlEngine> antFlypick,
+                            ObjectProvider<AntPodEtlEngine> antPod,
+                            ObjectProvider<MushinyPodEtlEngine> mushinyPod) {
+        // 레거시 도메인 (있을 때만 등록)
+        agv.ifAvailable(e -> registerDomain(registry, "agv", e));
+        inv.ifAvailable(e -> registerDomain(registry, "inventory", e));
+        pod.ifAvailable(e -> registerDomain(registry, "pod", e));
 
-        // 누적 성공 건수 (통계의 successfulRecords 사용, 단조 증가)
-        FunctionCounter.builder("etl_processed_records_total", agv,
+        // 신규 도메인
+        antRobot.ifAvailable(e -> registerDomain(registry, "antRobot", e));
+        mushinyAgv.ifAvailable(e -> registerDomain(registry, "mushinyAgv", e));
+        antFlypick.ifAvailable(e -> registerDomain(registry, "antFlypick", e));
+        antPod.ifAvailable(e -> registerDomain(registry, "antPod", e));
+        mushinyPod.ifAvailable(e -> registerDomain(registry, "mushinyPod", e));
+    }
+
+    private static void registerDomain(MeterRegistry registry, String domain, Object engine) {
+        // 최근 실행 시간
+        Gauge.builder("etl_last_execution_epoch_ms", () -> toEpochMs(((com.example.WCS_DataStream.etl.engine.ETLEngine<?>) engine).getStatistics()))
+                .tag("domain", domain).register(registry);
+        // 누적 성공 건수
+        FunctionCounter.builder("etl_processed_records_total",
+                        (com.example.WCS_DataStream.etl.engine.ETLEngine<?>) engine,
                         e -> safeDouble(e.getStatistics().getSuccessfulRecords()))
-                .tag("domain", "agv").register(registry);
-        FunctionCounter.builder("etl_processed_records_total", inv,
-                        e -> safeDouble(e.getStatistics().getSuccessfulRecords()))
-                .tag("domain", "inventory").register(registry);
-        FunctionCounter.builder("etl_processed_records_total", pod,
-                        e -> safeDouble(e.getStatistics().getSuccessfulRecords()))
-                .tag("domain", "pod").register(registry);
+                .tag("domain", domain).register(registry);
     }
 
     private static double toEpochMs(ETLStatistics stats) {
         LocalDateTime t = stats != null ? stats.getLastExecutionTime() : null;
         if (t == null) return 0d;
         return t.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli();
-    }
+        }
 
     private static double safeDouble(Long v) {
         return v == null ? 0d : v.doubleValue();
