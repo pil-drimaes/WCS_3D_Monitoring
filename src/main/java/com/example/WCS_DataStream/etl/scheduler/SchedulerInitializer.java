@@ -7,6 +7,8 @@ import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.util.List;
+
 /**
  * 애플리케이션 시작 시 모든 ETL 스케줄러를 초기화하는 컴포넌트
  * 
@@ -18,17 +20,11 @@ public class SchedulerInitializer {
     
     private static final Logger log = LoggerFactory.getLogger(SchedulerInitializer.class);
     
-    private final AgvDataScheduler agvDataScheduler;
-    private final InventoryDataScheduler inventoryDataScheduler;
-    private final PodDataScheduler podDataScheduler;
+    private final List<BaseETLScheduler<?>> schedulers;
     
     @Autowired
-    public SchedulerInitializer(AgvDataScheduler agvDataScheduler,
-                               InventoryDataScheduler inventoryDataScheduler,
-                               PodDataScheduler podDataScheduler) {
-        this.agvDataScheduler = agvDataScheduler;
-        this.inventoryDataScheduler = inventoryDataScheduler;
-        this.podDataScheduler = podDataScheduler;
+    public SchedulerInitializer(List<BaseETLScheduler<?>> schedulers) {
+        this.schedulers = schedulers;
     }
     
     /**
@@ -36,18 +32,18 @@ public class SchedulerInitializer {
      */
     @EventListener(ApplicationReadyEvent.class)
     public void initializeAllSchedulers() {
-        log.info("=== 애플리케이션 시작 시 모든 ETL 스케줄러 초기화 시작 ===");
-        
+        log.info("=== 애플리케이션 시작 시 ETL 스케줄러 초기화 시작 ===");
         try {
-            // 모든 스케줄러의 캐시를 리셋하고 초기화 상태로 설정
-            agvDataScheduler.initializeOnStartup();
-            inventoryDataScheduler.initializeOnStartup();
-            podDataScheduler.initializeOnStartup();
-            
-            log.info("=== 모든 ETL 스케줄러 초기화 완료 ===");
-            
+            for (BaseETLScheduler<?> scheduler : schedulers) {
+                try {
+                    scheduler.initializeOnStartup();
+                } catch (Exception e) {
+                    log.error("스케줄러 초기화 중 오류 발생 ({}): {}", scheduler.getClass().getSimpleName(), e.getMessage(), e);
+                }
+            }
+            log.info("=== ETL 스케줄러 초기화 완료 (총 {}개) ===", schedulers.size());
         } catch (Exception e) {
-            log.error("스케줄러 초기화 중 오류 발생: {}", e.getMessage(), e);
+            log.error("스케줄러 초기화 루프 오류: {}", e.getMessage(), e);
         }
     }
 } 

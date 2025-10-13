@@ -155,3 +155,28 @@ java -jar build/libs/WCS_DataStream-*.jar
 
 ### 서비스 수량(기본 도커 컴포즈)
 - App 1, PostgreSQL 1, Redis 1, Zookeeper 1, Kafka 1, Kafka-UI 1, Prometheus 1, Grafana 1, (선택) Exporters 2 
+
+## 환경 구성 표
+
+| 구분 | 항목 | WCS_DataStream |
+|---|---|---|
+| 개발 Framework | Base | Spring Boot 3.5.3 ||  | Front-End | 정적 HTML(대시보드) / Grafana |
+|  | Back-End | Java 21 (JDK 21), Spring Scheduling, WebSocket(선택) |
+| 개발도구 | IDE/Build | IntelliJ/VS Code(선택), Gradle, Docker/Docker Compose |
+|  | JDK | Temurin/OpenJDK 21 |
+| 웹서버 | Web server | Spring Boot 내장 Tomcat 10.1.x |
+|  | WAS | (내장) Tomcat 10.1.x |
+| 소스관리 | 형상관리 | Git (GitLab) |
+|  | 배포도구 | Docker Compose, 컨테이너 기반 배포 |
+| Database | Source(DB) | SQL Server (WCS_DB, 읽기 전용) |
+|  | Target(DB) | PostgreSQL 16.9 (적재/이력) |
+| OS | Web/App Server | Linux (개발 호스트: 5.15 커널), 컨테이너 기반 운영 |
+|  | DB Server | PostgreSQL 컨테이너(16.9) |
+| 미들웨어 | Kafka | Confluent Platform cp-kafka:7.4.10 (Zookeeper 포함) |
+|  | Redis | redis:7.2-alpine (캐시) |
+| 모니터링 | Prometheus | prom/prometheus:latest (스크랩: 앱/Exporters) |
+|  | Grafana | grafana/grafana:latest (대시보드) |
+| 관리도구 | Kafka UI | provectuslabs/kafka-ui:latest |
+|  | pgAdmin | dpage/pgadmin4:latest |
+
+> 비고: 서비스 실행 순서는 README 상단의 "서비스 실행 순서" 참고. 환경은 docker-compose.yml 기준으로 재현됩니다. 
