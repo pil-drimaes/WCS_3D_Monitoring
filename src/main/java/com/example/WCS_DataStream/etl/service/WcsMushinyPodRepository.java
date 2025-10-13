@@ -24,8 +24,9 @@ public class WcsMushinyPodRepository {
               UUID, POD_ID, SECTION_ID, ZONE_CODE, LOCATION, POD_DIRECTION, POS_X, POS_Y,
               INS_DT, INS_USER_ID, UPD_DT, UPD_USER_ID
             FROM cdc_test.dbo.MUSHINY_POD_INFO WITH (READPAST)
-            WHERE (UPD_DT > ?) OR (UPD_DT = ? AND UUID > ?)
-            ORDER BY UPD_DT ASC, UUID ASC
+            WHERE (COALESCE(UPD_DT, INS_DT) > ?)
+               OR (COALESCE(UPD_DT, INS_DT) = ? AND UUID > ?)
+            ORDER BY COALESCE(UPD_DT, INS_DT) ASC, UUID ASC
         """;
         return wcsJdbcTemplate.query(sql, ps -> {
             ps.setInt(1, limit);

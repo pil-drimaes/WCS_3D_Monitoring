@@ -25,8 +25,9 @@ public class WcsAntRobotRepository {
               REPORT_TIME, BATTERY, NODE_ID, POS_X, POS_Y, SPEED, TASK_ID, NEXT_TARGET,
               POD_ID, INS_DT, INS_USER_ID, UPD_DT, UPD_USER_ID
             FROM cdc_test.dbo.ANT_ROBOT_INFO WITH (READPAST)
-            WHERE (UPD_DT > ?) OR (UPD_DT = ? AND UUID > ?)
-            ORDER BY UPD_DT ASC, UUID ASC
+            WHERE (COALESCE(UPD_DT, INS_DT) > ?)
+               OR (COALESCE(UPD_DT, INS_DT) = ? AND UUID > ?)
+            ORDER BY COALESCE(UPD_DT, INS_DT) ASC, UUID ASC
         """;
         return wcsJdbcTemplate.query(sql, ps -> {
             ps.setInt(1, limit);

@@ -8,6 +8,7 @@ import com.example.WCS_DataStream.etl.service.SystemMushinyAgvRepository;
 import com.example.WCS_DataStream.etl.service.WcsMushinyAgvRepository;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.stereotype.Component;
+import com.example.WCS_DataStream.etl.service.KafkaEventPublisher;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -19,13 +20,15 @@ public class MushinyAgvEtlEngine extends ETLEngine<MushinyAgvInfoRecord> {
     private final WcsMushinyAgvRepository wcs;
     private final SystemMushinyAgvRepository systemRepo;
     private final EtlOffsetStore offsetStore;
+    private final KafkaEventPublisher eventPublisher;
 
     private static final String JOB = "etl-mushiny-agv";
 
-    public MushinyAgvEtlEngine(WcsMushinyAgvRepository wcs, SystemMushinyAgvRepository systemRepo, EtlOffsetStore offsetStore) {
+    public MushinyAgvEtlEngine(WcsMushinyAgvRepository wcs, SystemMushinyAgvRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher) {
         this.wcs = wcs;
         this.systemRepo = systemRepo;
         this.offsetStore = offsetStore;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -51,6 +54,7 @@ public class MushinyAgvEtlEngine extends ETLEngine<MushinyAgvInfoRecord> {
         Timestamp maxTs = null; String maxUuid = null;
         for (MushinyAgvInfoRecord r : data) {
             systemRepo.upsert(r);
+            eventPublisher.publishMushinyAgv(r);
             written.add(r);
             Timestamp t = r.getUpdDt() != null ? r.getUpdDt() : r.getInsDt();
             if (t != null) {
