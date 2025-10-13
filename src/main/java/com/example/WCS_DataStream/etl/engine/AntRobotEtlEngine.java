@@ -8,6 +8,7 @@ import com.example.WCS_DataStream.etl.service.SystemAgvRepository;
 import com.example.WCS_DataStream.etl.service.WcsAntRobotRepository;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.stereotype.Component;
+import com.example.WCS_DataStream.etl.service.KafkaEventPublisher;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -19,13 +20,15 @@ public class AntRobotEtlEngine extends ETLEngine<AntRobotInfoRecord> {
     private final WcsAntRobotRepository wcs;
     private final SystemAgvRepository systemRepo;
     private final EtlOffsetStore offsetStore;
+    private final KafkaEventPublisher eventPublisher;
 
     private static final String JOB = "etl-ant-robot";
 
-    public AntRobotEtlEngine(WcsAntRobotRepository wcs, SystemAgvRepository systemRepo, EtlOffsetStore offsetStore) {
+    public AntRobotEtlEngine(WcsAntRobotRepository wcs, SystemAgvRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher) {
         this.wcs = wcs;
         this.systemRepo = systemRepo;
         this.offsetStore = offsetStore;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -55,6 +58,7 @@ public class AntRobotEtlEngine extends ETLEngine<AntRobotInfoRecord> {
         Timestamp maxTs = null; String maxUuid = null;
         for (AntRobotInfoRecord r : data) {
             systemRepo.upsertAntRobotInfo(r);
+            eventPublisher.publishAntRobot(r);
             written.add(r);
             if (r.getUpdDt() != null) {
                 if (maxTs == null || r.getUpdDt().after(maxTs) || (r.getUpdDt().equals(maxTs) && compareUuid(r.getUuid(), maxUuid) > 0)) {

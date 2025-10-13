@@ -26,16 +26,6 @@ public class SystemMushinyPodRepository {
             ) VALUES (
               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
-            ON CONFLICT (uuid) DO UPDATE SET
-              pod_id = EXCLUDED.pod_id,
-              section_id = EXCLUDED.section_id,
-              zone_code = EXCLUDED.zone_code,
-              location = EXCLUDED.location,
-              pod_direction = EXCLUDED.pod_direction,
-              pos_x = EXCLUDED.pos_x,
-              pos_y = EXCLUDED.pos_y,
-              upd_dt = EXCLUDED.upd_dt,
-              upd_user_id = EXCLUDED.upd_user_id
         """;
         return postgresqlJdbcTemplate.update(sql,
             r.getUuid(), r.getPodId(), r.getSectionId(), r.getZoneCode(), r.getLocation(), r.getPodDirection(),

@@ -25,13 +25,6 @@ public class SystemAntPodRepository {
             ) VALUES (
               ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
-            ON CONFLICT (uuid) DO UPDATE SET
-              pod_id = EXCLUDED.pod_id,
-              pod_face = EXCLUDED.pod_face,
-              location = EXCLUDED.location,
-              report_time = EXCLUDED.report_time,
-              upd_dt = EXCLUDED.upd_dt,
-              upd_user_id = EXCLUDED.upd_user_id
         """;
         return postgresqlJdbcTemplate.update(sql,
             r.getUuid(), r.getPodId(), r.getPodFace(), r.getLocation(), r.getReportTime(), r.getInsDt(), r.getInsUserId(), r.getUpdDt(), r.getUpdUserId()

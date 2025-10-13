@@ -8,6 +8,7 @@ import com.example.WCS_DataStream.etl.service.SystemMushinyPodRepository;
 import com.example.WCS_DataStream.etl.service.WcsMushinyPodRepository;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.stereotype.Component;
+import com.example.WCS_DataStream.etl.service.KafkaEventPublisher;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -19,13 +20,15 @@ public class MushinyPodEtlEngine extends ETLEngine<MushinyPodInfoRecord> {
     private final WcsMushinyPodRepository wcs;
     private final SystemMushinyPodRepository systemRepo;
     private final EtlOffsetStore offsetStore;
+    private final KafkaEventPublisher eventPublisher;
 
     private static final String JOB = "etl-mushiny-pod";
 
-    public MushinyPodEtlEngine(WcsMushinyPodRepository wcs, SystemMushinyPodRepository systemRepo, EtlOffsetStore offsetStore) {
+    public MushinyPodEtlEngine(WcsMushinyPodRepository wcs, SystemMushinyPodRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher) {
         this.wcs = wcs;
         this.systemRepo = systemRepo;
         this.offsetStore = offsetStore;
+        this.eventPublisher = eventPublisher;
     }
 
     @Override
@@ -51,6 +54,7 @@ public class MushinyPodEtlEngine extends ETLEngine<MushinyPodInfoRecord> {
         Timestamp maxTs = null; String maxUuid = null;
         for (MushinyPodInfoRecord r : data) {
             systemRepo.upsert(r);
+            eventPublisher.publishMushinyPod(r);
             written.add(r);
             Timestamp t = r.getUpdDt() != null ? r.getUpdDt() : r.getInsDt();
             if (t != null) {

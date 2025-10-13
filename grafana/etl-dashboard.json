@@ -40,7 +40,8 @@
         "textMode": "value",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": { "valueSize": 40 }
       },
       "fieldConfig": {
         "defaults": {
@@ -82,7 +83,8 @@
         "textMode": "value",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": { "valueSize": 40 }
       },
       "fieldConfig": {
         "defaults": { "unit": "dateTimeAsIso", "mappings": [], "thresholds": { "mode": "absolute", "steps": [{"color": "green"}] } },
@@ -115,7 +117,8 @@
         "textMode": "value",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": { "valueSize": 40 }
       },
       "fieldConfig": {
         "defaults": { "unit": "dateTimeAsIso", "mappings": [], "thresholds": { "mode": "absolute", "steps": [{"color": "green"}] } },
@@ -148,7 +151,8 @@
         "textMode": "value",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": { "valueSize": 40 }
       },
       "fieldConfig": {
         "defaults": { "unit": "dateTimeAsIso" },
@@ -181,7 +185,8 @@
         "textMode": "value",
         "colorMode": "value",
         "graphMode": "none",
-        "justifyMode": "auto"
+        "justifyMode": "auto",
+        "text": { "valueSize": 40 }
       },
       "fieldConfig": {
         "defaults": { "unit": "dateTimeAsIso" },
@@ -207,7 +212,7 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum by (domain) (rate(etl_processed_records_total[1m]))",
+          "expr": "sum by (domain) (rate(etl_processed_records_total{domain!~\".*(pod|agv|inventory).*\"}[1m]))",
           "legendFormat": "{{domain}}",
           "refId": "A"
         }
@@ -222,13 +227,35 @@
       "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
       "targets": [
         {
-          "expr": "sum by (domain) (increase(etl_processed_records_total[5m]))",
+          "expr": "sum by (domain) (increase(etl_processed_records_total{domain!~\".*(pod|agv|inventory).*\"}[5m]))",
           "legendFormat": "{{domain}}",
           "refId": "A"
         }
       ],
       "options": { "orientation": "horizontal", "displayMode": "lcd" },
       "fieldConfig": { "defaults": { "unit": "short" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Redis Memory Used",
+      "gridPos": { "h": 4, "w": 8, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "redis_memory_used_bytes", "refId": "A", "legendFormat": "used_bytes" }
+      ],
+      "options": { "reduceOptions": { "values": false, "calcs": ["lastNotNull"] }, "textMode": "value" },
+      "fieldConfig": { "defaults": { "unit": "bytes" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis CPU (user+sys)",
+      "gridPos": { "h": 6, "w": 16, "x": 8, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
+      "targets": [
+        { "expr": "rate(redis_cpu_user_seconds_total[1m]) + rate(redis_cpu_sys_seconds_total[1m])", "refId": "A", "legendFormat": "cpu sec/s" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s/s" }, "overrides": [] },
+      "options": { "legend": { "showLegend": true }, "tooltip": { "mode": "single" } }
     }
   ],
   "refresh": "10s",

@@ -1,8 +1,6 @@
 package com.example.WCS_DataStream.etl.common;
 
-import com.example.WCS_DataStream.etl.engine.AgvDataETLEngine;
-import com.example.WCS_DataStream.etl.engine.InventoryDataETLEngine;
-import com.example.WCS_DataStream.etl.engine.PodDataETLEngine;
+
 import com.example.WCS_DataStream.etl.engine.AntRobotEtlEngine;
 import com.example.WCS_DataStream.etl.engine.MushinyAgvEtlEngine;
 import com.example.WCS_DataStream.etl.engine.AntFlypickEtlEngine;
@@ -22,20 +20,12 @@ import java.time.ZoneId;
 public class EtlMetricsBinder {
 
     public EtlMetricsBinder(MeterRegistry registry,
-                            ObjectProvider<AgvDataETLEngine> agv,
-                            ObjectProvider<InventoryDataETLEngine> inv,
-                            ObjectProvider<PodDataETLEngine> pod,
                             ObjectProvider<AntRobotEtlEngine> antRobot,
                             ObjectProvider<MushinyAgvEtlEngine> mushinyAgv,
                             ObjectProvider<AntFlypickEtlEngine> antFlypick,
                             ObjectProvider<AntPodEtlEngine> antPod,
                             ObjectProvider<MushinyPodEtlEngine> mushinyPod) {
-        // 레거시 도메인 (있을 때만 등록)
-        agv.ifAvailable(e -> registerDomain(registry, "agv", e));
-        inv.ifAvailable(e -> registerDomain(registry, "inventory", e));
-        pod.ifAvailable(e -> registerDomain(registry, "pod", e));
 
-        // 신규 도메인
         antRobot.ifAvailable(e -> registerDomain(registry, "antRobot", e));
         mushinyAgv.ifAvailable(e -> registerDomain(registry, "mushinyAgv", e));
         antFlypick.ifAvailable(e -> registerDomain(registry, "antFlypick", e));

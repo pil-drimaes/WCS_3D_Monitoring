@@ -28,21 +28,6 @@ public class SystemMushinyAgvRepository {
             ) VALUES (
               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
             )
-            ON CONFLICT (uuid) DO UPDATE SET
-              robot_no = EXCLUDED.robot_no,
-              zone_code = EXCLUDED.zone_code,
-              node_id = EXCLUDED.node_id,
-              direction_front = EXCLUDED.direction_front,
-              pod_id = EXCLUDED.pod_id,
-              pod_direction = EXCLUDED.pod_direction,
-              status = EXCLUDED.status,
-              manual = EXCLUDED.manual,
-              battery = EXCLUDED.battery,
-              pos_x = EXCLUDED.pos_x,
-              pos_y = EXCLUDED.pos_y,
-              has_pod = EXCLUDED.has_pod,
-              upd_dt = EXCLUDED.upd_dt,
-              upd_user_id = EXCLUDED.upd_user_id
         """;
         return postgresqlJdbcTemplate.update(sql,
             r.getUuid(), r.getRobotNo(), r.getZoneCode(), r.getNodeId(), r.getDirectionFront(), r.getPodId(), r.getPodDirection(),
