@@ -9,6 +9,8 @@ import com.example.WCS_DataStream.etl.service.WcsMushinyPodRepository;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.stereotype.Component;
 import com.example.WCS_DataStream.etl.service.KafkaEventPublisher;
+import com.example.WCS_DataStream.etl.service.RedisCacheService;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -21,14 +23,19 @@ public class MushinyPodEtlEngine extends ETLEngine<MushinyPodInfoRecord> {
     private final SystemMushinyPodRepository systemRepo;
     private final EtlOffsetStore offsetStore;
     private final KafkaEventPublisher eventPublisher;
+    private final RedisCacheService redis;
+    private final String changeFields;
 
     private static final String JOB = "etl-mushiny-pod";
+    private static final String SNAP_NS = "etlSnapshot:etl-mushiny-pod";
 
-    public MushinyPodEtlEngine(WcsMushinyPodRepository wcs, SystemMushinyPodRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher) {
+    public MushinyPodEtlEngine(WcsMushinyPodRepository wcs, SystemMushinyPodRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher, RedisCacheService redis, @Value("${etl.changeDetection.mushinyPod:}") String changeFields) {
         this.wcs = wcs;
         this.systemRepo = systemRepo;
         this.offsetStore = offsetStore;
         this.eventPublisher = eventPublisher;
+        this.redis = redis;
+        this.changeFields = changeFields;
     }
 
     @Override
@@ -53,9 +60,14 @@ public class MushinyPodEtlEngine extends ETLEngine<MushinyPodInfoRecord> {
         List<MushinyPodInfoRecord> written = new ArrayList<>(data.size());
         Timestamp maxTs = null; String maxUuid = null;
         for (MushinyPodInfoRecord r : data) {
+            MushinyPodInfoRecord prev = redis.get(SNAP_NS, r.getUuid(), MushinyPodInfoRecord.class);
+            if (!hasSelectedFieldsChanged(prev, r)) {
+                continue;
+            }
             systemRepo.upsert(r);
             eventPublisher.publishMushinyPod(r);
             written.add(r);
+            redis.set(SNAP_NS, r.getUuid(), r);
             Timestamp t = r.getUpdDt() != null ? r.getUpdDt() : r.getInsDt();
             if (t != null) {
                 if (maxTs == null || t.after(maxTs) || (t.equals(maxTs) && compareUuid(r.getUuid(), maxUuid) > 0)) {
@@ -77,4 +89,37 @@ public class MushinyPodEtlEngine extends ETLEngine<MushinyPodInfoRecord> {
 
     @Override
     public void initialize(ETLConfig config, PostgreSQLDataService postgreSQLDataService) { super.initialize(config, postgreSQLDataService); }
+
+    private boolean hasSelectedFieldsChanged(MushinyPodInfoRecord prev, MushinyPodInfoRecord curr) {
+        if (curr == null) return false;
+        if (prev == null) return true;
+        String cfg = changeFields == null ? "" : changeFields.trim();
+        if (cfg.isEmpty()) return true;
+        String[] fields = cfg.split(",");
+        for (String f : fields) {
+            String key = f.trim().toLowerCase();
+            if (key.isEmpty()) continue;
+            switch (key) {
+                case "posx": if (!equalsDecimal(prev.getPosX(), curr.getPosX())) return true; else break;
+                case "posy": if (!equalsDecimal(prev.getPosY(), curr.getPosY())) return true; else break;
+                case "zonecode": if (!equalsObj(prev.getZoneCode(), curr.getZoneCode())) return true; else break;
+                case "location": if (!equalsObj(prev.getLocation(), curr.getLocation())) return true; else break;
+                case "poddirection": if (!equalsObj(prev.getPodDirection(), curr.getPodDirection())) return true; else break;
+                default: break;
+            }
+        }
+        return false;
+    }
+
+    private boolean equalsObj(Object a, Object b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.equals(b);
+    }
+
+    private boolean equalsDecimal(java.math.BigDecimal a, java.math.BigDecimal b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.compareTo(b) == 0;
+    }
 } 
