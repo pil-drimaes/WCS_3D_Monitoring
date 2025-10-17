@@ -9,6 +9,8 @@ import com.example.WCS_DataStream.etl.service.WcsAntPodRepository;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.stereotype.Component;
 import com.example.WCS_DataStream.etl.service.KafkaEventPublisher;
+import com.example.WCS_DataStream.etl.service.RedisCacheService;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.sql.Timestamp;
 import java.util.ArrayList;
@@ -21,14 +23,19 @@ public class AntPodEtlEngine extends ETLEngine<AntPodInfoRecord> {
     private final SystemAntPodRepository systemRepo;
     private final EtlOffsetStore offsetStore;
     private final KafkaEventPublisher eventPublisher;
+    private final RedisCacheService redis;
+    private final String changeFields;
 
     private static final String JOB = "etl-ant-pod";
+    private static final String SNAP_NS = "etlSnapshot:etl-ant-pod";
 
-    public AntPodEtlEngine(WcsAntPodRepository wcs, SystemAntPodRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher) {
+    public AntPodEtlEngine(WcsAntPodRepository wcs, SystemAntPodRepository systemRepo, EtlOffsetStore offsetStore, KafkaEventPublisher eventPublisher, RedisCacheService redis, @Value("${etl.changeDetection.antPod:}") String changeFields) {
         this.wcs = wcs;
         this.systemRepo = systemRepo;
         this.offsetStore = offsetStore;
         this.eventPublisher = eventPublisher;
+        this.redis = redis;
+        this.changeFields = changeFields;
     }
 
     @Override
@@ -53,9 +60,14 @@ public class AntPodEtlEngine extends ETLEngine<AntPodInfoRecord> {
         List<AntPodInfoRecord> written = new ArrayList<>(data.size());
         Timestamp maxTs = null; String maxUuid = null;
         for (AntPodInfoRecord r : data) {
+            AntPodInfoRecord prev = redis.get(SNAP_NS, r.getUuid(), AntPodInfoRecord.class);
+            if (!hasSelectedFieldsChanged(prev, r)) {
+                continue;
+            }
             systemRepo.upsert(r);
             eventPublisher.publishAntPod(r);
             written.add(r);
+            redis.set(SNAP_NS, r.getUuid(), r);
             Timestamp t = r.getUpdDt() != null ? r.getUpdDt() : r.getInsDt();
             if (t != null) {
                 if (maxTs == null || t.after(maxTs) || (t.equals(maxTs) && compareUuid(r.getUuid(), maxUuid) > 0)) {
@@ -77,4 +89,33 @@ public class AntPodEtlEngine extends ETLEngine<AntPodInfoRecord> {
 
     @Override
     public void initialize(ETLConfig config, PostgreSQLDataService postgreSQLDataService) { super.initialize(config, postgreSQLDataService); }
+
+    private boolean hasSelectedFieldsChanged(AntPodInfoRecord prev, AntPodInfoRecord curr) {
+        if (curr == null) return false;
+        if (prev == null) return true;
+        String cfg = changeFields == null ? "" : changeFields.trim();
+        if (cfg.isEmpty()) return true;
+        String[] fields = cfg.split(",");
+        for (String f : fields) {
+            String key = f.trim().toLowerCase();
+            if (key.isEmpty()) continue;
+            switch (key) {
+                case "location":
+                    if (!equalsObj(prev.getLocation(), curr.getLocation())) return true; else break;
+                case "podface":
+                    if (!equalsObj(prev.getPodFace(), curr.getPodFace())) return true; else break;
+                case "podid":
+                    if (!equalsObj(prev.getPodId(), curr.getPodId())) return true; else break;
+                default:
+                    break;
+            }
+        }
+        return false;
+    }
+
+    private boolean equalsObj(Object a, Object b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        return a.equals(b);
+    }
 } 
