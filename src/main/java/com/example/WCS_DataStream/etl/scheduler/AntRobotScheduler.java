@@ -5,8 +5,6 @@ import com.example.WCS_DataStream.etl.engine.ETLEngine;
 import com.example.WCS_DataStream.etl.model.vendor.ant.AntRobotInfoRecord;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
@@ -14,7 +12,6 @@ import java.util.List;
 import java.util.Set;
 
 @Component
-@ConditionalOnProperty(prefix = "etl.antRobot", name = "enabled", havingValue = "true")
 public class AntRobotScheduler extends BaseETLScheduler<AntRobotInfoRecord> {
 
     private final AntRobotEtlEngine engine;
@@ -27,16 +24,16 @@ public class AntRobotScheduler extends BaseETLScheduler<AntRobotInfoRecord> {
         this.engine = engine;
     }
 
-    @Scheduled(fixedRateString = "${etl.antRobot.interval}", initialDelayString = "${etl.antRobot.initialDelay}")
-    public void executeETLProcess() {
-        super.executeETLProcess();
-    }
+    // 동적 스케줄링으로 대체
 
     @Override
     protected ETLEngine<AntRobotInfoRecord> getETLEngine() { return engine; }
 
     @Override
     protected String getSchedulerName() { return "ANT Robot"; }
+
+    @Override
+    protected String getDomainKey() { return "antrobot"; }
 
     @Override
     protected void processInitialData() {

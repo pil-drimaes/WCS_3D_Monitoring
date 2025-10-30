@@ -5,8 +5,6 @@ import com.example.WCS_DataStream.etl.engine.MushinyAgvEtlEngine;
 import com.example.WCS_DataStream.etl.model.vendor.mushiny.MushinyAgvInfoRecord;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
@@ -14,7 +12,6 @@ import java.util.List;
 import java.util.Set;
 
 @Component
-@ConditionalOnProperty(prefix = "etl.mushinyAgv", name = "enabled", havingValue = "true")
 public class MushinyAgvScheduler extends BaseETLScheduler<MushinyAgvInfoRecord> {
 
     private final MushinyAgvEtlEngine engine;
@@ -27,14 +24,16 @@ public class MushinyAgvScheduler extends BaseETLScheduler<MushinyAgvInfoRecord> 
         this.engine = engine;
     }
 
-    @Scheduled(fixedRateString = "${etl.mushinyAgv.interval}", initialDelayString = "${etl.mushinyAgv.initialDelay}")
-    public void executeETLProcess() { super.executeETLProcess(); }
+    // 동적 스케줄링으로 대체
 
     @Override
     protected ETLEngine<MushinyAgvInfoRecord> getETLEngine() { return engine; }
 
     @Override
     protected String getSchedulerName() { return "MUSHINY AGV"; }
+
+    @Override
+    protected String getDomainKey() { return "mushinyagv"; }
 
     @Override
     protected void processInitialData() {
