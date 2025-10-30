@@ -6,8 +6,12 @@ import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.TaskScheduler;
+import org.springframework.scheduling.support.PeriodicTrigger;
 
 import java.time.LocalDateTime;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -47,6 +51,7 @@ public abstract class BaseETLScheduler<T> {
      * 스케줄러 이름
      */
     protected abstract String getSchedulerName();
+    protected abstract String getDomainKey();
     
     /**
      * 기본 ETL 설정 생성
@@ -90,6 +95,20 @@ public abstract class BaseETLScheduler<T> {
     // @Scheduled(fixedRate = 100) // 0.1초마다 실행 (도메인별 주기 설정으로 이동)
     public void executeETLProcess() {
         try {
+            // DB 기반 스케줄 제어: enabled가 false면 스킵
+            try {
+                com.example.WCS_DataStream.etl.service.SystemScheduleConfigRepository repo = 
+                    com.example.WCS_DataStream.etl.scheduler.SpringContext.getBean(com.example.WCS_DataStream.etl.service.SystemScheduleConfigRepository.class);
+                if (repo != null) {
+                    com.example.WCS_DataStream.etl.config.EtlScheduleConfig cfg = repo.getByDomain(getDomainKey());
+                    if (cfg != null && !cfg.isEnabled()) {
+                        log.debug("{} disabled by DB config", getSchedulerName());
+                        return;
+                    }
+                }
+            } catch (Exception e) {
+                log.warn("{} DB schedule config check failed: {}", getSchedulerName(), e.getMessage());
+            }
             if (!initialized) {
                 initializeETL();
                 processInitialData(); // 초기 데이터 처리
@@ -113,6 +132,42 @@ public abstract class BaseETLScheduler<T> {
             
         } catch (Exception e) {
             log.error("{} ETL 프로세스 실행 중 오류: {}", getSchedulerName(), e.getMessage(), e);
+        }
+    }
+
+    private ScheduledFuture<?> scheduledTask;
+
+    /**
+     * DB 설정으로 스케줄 시작 (동적 스케줄링)
+     */
+    public void scheduleFromDbConfig() {
+        try {
+            com.example.WCS_DataStream.etl.service.SystemScheduleConfigRepository repo =
+                com.example.WCS_DataStream.etl.scheduler.SpringContext.getBean(com.example.WCS_DataStream.etl.service.SystemScheduleConfigRepository.class);
+            TaskScheduler scheduler = com.example.WCS_DataStream.etl.scheduler.SpringContext.getBean(TaskScheduler.class);
+            if (scheduler == null) {
+                log.warn("{} TaskScheduler 가 존재하지 않아 스케줄 시작을 건너뜁니다.", getSchedulerName());
+                return;
+            }
+            long intervalMs = 1000L;
+            long initialDelayMs = 0L;
+            if (repo != null) {
+                com.example.WCS_DataStream.etl.config.EtlScheduleConfig cfg = repo.getByDomain(getDomainKey());
+                if (cfg != null) {
+                    intervalMs = Math.max(1L, cfg.getIntervalMs());
+                    initialDelayMs = Math.max(0L, cfg.getInitialDelayMs());
+                }
+            }
+            // 이전 스케줄이 있으면 취소
+            if (scheduledTask != null) {
+                scheduledTask.cancel(false);
+            }
+            PeriodicTrigger trigger = new PeriodicTrigger(intervalMs, TimeUnit.MILLISECONDS);
+            trigger.setInitialDelay(initialDelayMs);
+            scheduledTask = scheduler.schedule(this::executeETLProcess, trigger);
+            log.info("{} DB 스케줄 시작: intervalMs={}, initialDelayMs={}", getSchedulerName(), intervalMs, initialDelayMs);
+        } catch (Exception e) {
+            log.error("{} DB 스케줄 시작 실패: {}", getSchedulerName(), e.getMessage(), e);
         }
     }
     
