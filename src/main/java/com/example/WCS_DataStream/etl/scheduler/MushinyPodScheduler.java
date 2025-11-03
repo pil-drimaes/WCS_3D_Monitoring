@@ -5,8 +5,6 @@ import com.example.WCS_DataStream.etl.engine.MushinyPodEtlEngine;
 import com.example.WCS_DataStream.etl.model.vendor.mushiny.MushinyPodInfoRecord;
 import com.example.WCS_DataStream.etl.service.PostgreSQLDataService;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
@@ -14,7 +12,6 @@ import java.util.List;
 import java.util.Set;
 
 @Component
-@ConditionalOnProperty(prefix = "etl.mushinyPod", name = "enabled", havingValue = "true")
 public class MushinyPodScheduler extends BaseETLScheduler<MushinyPodInfoRecord> {
 
     private final MushinyPodEtlEngine engine;
@@ -27,14 +24,16 @@ public class MushinyPodScheduler extends BaseETLScheduler<MushinyPodInfoRecord> 
         this.engine = engine;
     }
 
-    @Scheduled(fixedRateString = "${etl.mushinyPod.interval}", initialDelayString = "${etl.mushinyPod.initialDelay}")
-    public void executeETLProcess() { super.executeETLProcess(); }
+    // 동적 스케줄링으로 대체
 
     @Override
     protected ETLEngine<MushinyPodInfoRecord> getETLEngine() { return engine; }
 
     @Override
     protected String getSchedulerName() { return "MUSHINY POD"; }
+
+    @Override
+    protected String getDomainKey() { return "mushinypod"; }
 
     @Override
     protected void processInitialData() {

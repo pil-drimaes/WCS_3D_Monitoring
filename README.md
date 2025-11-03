@@ -100,6 +100,22 @@ WCS_DB (Source) → 스케줄러(Quartz/Scheduling) → ETL 엔진(Extract/Trans
   - 도메인 모델: `AgvData`, `InventoryInfo`, `PodInfo`
   - 벤더별 DTO: `...vendor.ant.*`, `...vendor.mushiny.*`
 
+### 앱 시작→스케줄→엔진 실행 순서 상세
+
+1) 애플리케이션 부팅 → 스케줄러 초기화/등록
+   - `ApplicationReadyEvent` 시점에 `SchedulerInitializer`가 모든 스케줄러에 대해 초기화 및 DB 스케줄 등록을 수행합니다.
+   - 각 스케줄러는 `etl_scheduler_config` 테이블(포스트그레스)에서 `domain`별 `enabled`, `interval_ms`, `initial_delay_ms`를 읽어 동적으로 등록됩니다.
+
+2) 틱 실행(`executeETLProcess`)
+   - 매 틱마다 DB 설정의 `enabled=false`면 즉시 스킵합니다.
+   - 엔진이 초기화되지 않은 경우 1회 `processInitialData()`로 초기 적재 후, 이후에는 `processIncrementalData()`만 수행합니다.
+   - 필요 시 강제 재처리 모드(관리 API 확장 시)를 통해 초기 적재를 다시 수행할 수 있습니다.
+
+3) 엔진 실행(`executeETL`)
+   - Extract: Redis `EtlOffsetStore`의 `(lastTs,lastUuid)`을 기준으로 WCS에서 증분 조회
+   - Transform/Load: Redis 스냅샷과 비교(필드 기반), System DB 적재, Kafka 이벤트 발행(옵션)
+   - Offset 갱신: 배치 내 최대 타임스탬프/UUID로 `(lastTs,lastUuid)` 업데이트
+
 ### 관측성(Observability)
 - `EtlMetricsBinder`가 Micrometer 지표를 등록합니다.
   - `etl_last_execution_epoch_ms{domain}`: 최근 ETL 실행 시각(epoch ms)
@@ -108,16 +124,25 @@ WCS_DB (Source) → 스케줄러(Quartz/Scheduling) → ETL 엔진(Extract/Trans
 
 ## 변경 감지(비교) 로직
 
-- 현재 기본값: “모든 필드” 동일성으로 판단
-  - 각 엔진의 `isSameData(...)`가 Lombok `equals`에 의존하여 전체 필드를 비교합니다.
-- 커스터마이징 예시
-  - AGV의 X/Y 좌표 변화만 감지: `AgvDataETLEngine.isSameData`에서 `posX`, `posY`만 비교하도록 수정
-  - 상태 변화만 감지: 해당 상태 필드만 비교하도록 수정
+- Redis 스냅샷 비교: 각 엔진은 네임스페이스별 스냅샷(`etlSnapshot:<job>`)에서 직전 레코드를 조회하여 `hasSelectedFieldsChanged(prev, curr)`로 변경 여부를 판단합니다.
+- 변경 필드 설정(프로퍼티):
+  - `etl.changeDetection.antRobot`, `etl.changeDetection.antPod`, `etl.changeDetection.mushinyAgv`, `etl.changeDetection.mushinyPod`
+  - 콤마로 필드를 지정합니다. 예) `etl.changeDetection.antRobot=posX,posY,status,battery`
+  - 값이 비어있으면 모든 레코드를 “변경”으로 간주하여 매번 적재/발행합니다.
+- 동일성 판단 메서드: `isSameData(...)`는 기본적으로 UUID 동일성만 확인하며, 변경 감지의 본체는 `hasSelectedFieldsChanged(...)`입니다.
+- 스냅샷 갱신: 처리 후 최신 레코드를 `redis.set(namespace, uuid, record)`로 저장합니다.
 
-## 증분 처리 기준(LatestTime)
+## 증분 처리 기준(오프셋)
 
-- PostgreSQL 대상 테이블의 `MAX(report_time)`를 조회하여 WCS에서 `>= latest` 조건으로 가져옵니다.
-- 경계값 중복은 DB 중복 체크와 캐시 비교에서 스킵됩니다.
+- `EtlOffsetStore`(Redis)에 `(lastTs, lastUuid)`로 오프셋을 저장/조회합니다.
+- WCS 증분 쿼리: `COALESCE(UPD_DT, INS_DT) > lastTs` OR `(= lastTs AND UUID > lastUuid)`를 만족하는 레코드를 시간/UUID 오름차순으로 조회합니다.
+- 배치 처리 후 배치 내 최대 시간/UUID를 오프셋으로 저장하여 다음 틱의 시작점을 보장합니다.
+
+## 스케줄 제어(DB)
+
+- 테이블: `public.etl_scheduler_config(domain PK, enabled, interval_ms, initial_delay_ms, description, ...)`
+- 역할: 스케줄러별 활성화 여부와 주기/초기지연을 동적으로 제어합니다.
+- 도메인 키 예시: `antrobot`, `antpod`, `mushinyagv`, `mushinypod`, `antflypick`
 
 ## 성능/중복 방지 전략
 

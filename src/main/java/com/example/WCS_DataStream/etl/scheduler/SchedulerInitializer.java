@@ -37,6 +37,7 @@ public class SchedulerInitializer {
             for (BaseETLScheduler<?> scheduler : schedulers) {
                 try {
                     scheduler.initializeOnStartup();
+                    scheduler.scheduleFromDbConfig();
                 } catch (Exception e) {
                     log.error("스케줄러 초기화 중 오류 발생 ({}): {}", scheduler.getClass().getSimpleName(), e.getMessage(), e);
                 }
