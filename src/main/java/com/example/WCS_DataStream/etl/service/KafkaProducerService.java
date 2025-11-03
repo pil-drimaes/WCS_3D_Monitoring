@@ -1,11 +1,9 @@
 package com.example.WCS_DataStream.etl.service;
 
-import com.example.WCS_DataStream.etl.model.AgvData;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.kafka.core.KafkaTemplate;
-import org.springframework.kafka.support.SendResult;
 import org.springframework.stereotype.Service;
 
 import java.util.concurrent.TimeUnit;
@@ -58,21 +56,7 @@ public class KafkaProducerService {
             return false;
         }
     }
-    
-    /**
-     * AGV 데이터를 Kafka로 전송
-     */
-    public boolean sendAgvData(AgvData agvData) {
-        try {
-            kafkaTemplate.send(agvDataTopic, agvData.getRobotNo(), agvData);
-            log.debug("AGV data sent to Kafka: robot_no={}", agvData.getRobotNo());
-            return true;
-        } catch (Exception e) {
-            log.error("Failed to send AGV data to Kafka: {}", e.getMessage());
-            return false;
-        }
-    }
-    
+
     /**
      * ETL 상태를 Kafka로 전송
      */
