@@ -45,6 +45,20 @@ public class SystemScheduleConfigRepository {
 		return list.isEmpty() ? null : list.get(0);
 	}
 
+    public void ensureDomainRow(String domain, long intervalMs, long initialDelayMs, String description) {
+        try {
+            String check = "SELECT COUNT(1) FROM public.etl_scheduler_config WHERE domain = ?";
+            Integer cnt = postgresqlJdbcTemplate.queryForObject(check, Integer.class, domain);
+            if (cnt != null && cnt > 0) return;
+            String ins = """
+                INSERT INTO public.etl_scheduler_config (domain, enabled, interval_ms, initial_delay_ms, description, upd_id)
+                VALUES (?, TRUE, ?, ?, ?, 'etl')
+            """;
+            postgresqlJdbcTemplate.update(ins, domain, intervalMs, initialDelayMs, description);
+        } catch (Exception ignore) {
+        }
+    }
+
 	private EtlScheduleConfig mapRow(ResultSet rs, int rowNum) throws SQLException {
 		EtlScheduleConfig c = new EtlScheduleConfig();
 		c.setDomain(rs.getString("domain"));

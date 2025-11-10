@@ -1,6 +1,5 @@
 package com.example.WCS_DataStream.etl.service;
 
-import com.example.WCS_DataStream.etl.model.AgvData;
 import com.example.WCS_DataStream.etl.service.KafkaProducerService.ETLStatusMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -16,24 +15,7 @@ public class KafkaConsumerService {
     
     private static final Logger log = LoggerFactory.getLogger(KafkaConsumerService.class);
     
-    /**
-     * AGV 데이터 토픽 수신
-     */
-    @KafkaListener(topics = "${kafka.topic.agv-data:agv-data-events}", 
-                   groupId = "${spring.kafka.consumer.group-id:agv-etl-group}")
-    public void consumeAgvData(AgvData agvData) {
-        try {
-            log.info("Received AGV data from Kafka: robot_no={}, pos_x={}, pos_y={}", 
-                     agvData.getRobotNo(), agvData.getPosX(), agvData.getPosY());
-            
-            // 여기에 AGV 데이터 처리 로직 추가
-            processAgvData(agvData);
-            
-        } catch (Exception e) {
-            log.error("Error processing AGV data from Kafka: {}", e.getMessage(), e);
-        }
-    }
-    
+
     /**
      * ETL 상태 토픽 수신
      */
@@ -52,15 +34,7 @@ public class KafkaConsumerService {
             log.error("Error processing ETL status from Kafka: {}", e.getMessage(), e);
         }
     }
-    
-    /**
-     * AGV 데이터 처리
-     */
-    private void processAgvData(AgvData agvData) {
-        // TODO: AGV 데이터 처리 로직 구현
-        log.debug("Processing AGV data: robot_no={}", agvData.getRobotNo());
-    }
-    
+
     /**
      * ETL 상태 처리
      */

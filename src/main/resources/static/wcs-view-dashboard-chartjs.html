@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>WCS View Dashboard (Chart.js)</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.6/dist/chart.umd.min.js"></script>
+  <style>
+    body { margin: 0; background: #0b1220; color: #e6edf3; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, 'Helvetica Neue', Arial, 'Noto Sans'; }
+    .grid { display: grid; grid-template-columns: 2fr 1fr; grid-template-rows: 420px 360px 280px; gap: 12px; padding: 12px; }
+    .card { background: #111a2a; border-radius: 10px; padding: 10px; box-shadow: inset 0 0 0 1px rgba(255,255,255,0.06); }
+    .title { font-weight: 600; margin: 4px 8px 8px; opacity: .9; }
+    canvas { width: 100% !important; height: 100% !important; }
+    #batch-list { height: 240px; overflow: auto; padding: 8px; }
+    .batch-item { display: flex; align-items: center; gap: 10px; margin: 6px 0; }
+    .progress { flex: 1; height: 10px; background: #1b2740; border-radius: 6px; }
+    .progress > span { display: block; height: 100%; background: linear-gradient(90deg,#2a7fff,#17d4ff); border-radius: 6px; }
+    .status { width: 56px; text-align: right; font-size: 12px; opacity: .8; }
+  </style>
+</head>
+<body>
+  <div class="grid">
+    <div class="card">
+      <div class="title">시간별/일별 Capacity</div>
+      <canvas id="capLine"></canvas>
+    </div>
+    <div class="card">
+      <div class="title">적재 비율(Zone)</div>
+      <canvas id="zoneDonut"></canvas>
+    </div>
+
+    <div class="card">
+      <div class="title">층별 적재율(Zone × Floor)</div>
+      <canvas id="floorStack"></canvas>
+    </div>
+    <div class="card">
+      <div class="title">설비 모니터링</div>
+      <canvas id="mcStack"></canvas>
+    </div>
+
+    <div class="card" style="grid-column: 1 / span 2;">
+      <div class="title">배치 현황</div>
+      <div id="batch-list"></div>
+    </div>
+  </div>
+
+  <script>
+    const colors = {
+      pick: '#2a7fff', sort: '#ff7f50', pack: '#34d399',
+      normal: '#22c55e', warning: '#f59e0b', error: '#ef4444',
+      series: ['#2a7fff','#ff7f50','#34d399','#a78bfa','#f472b6','#22d3ee']
+    };
+
+    const capCtx = document.getElementById('capLine');
+    const zoneCtx = document.getElementById('zoneDonut');
+    const floorCtx = document.getElementById('floorStack');
+    const mcCtx = document.getElementById('mcStack');
+
+    const capChart = new Chart(capCtx, {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        responsive: true,
+        scales: {
+          x: { ticks: { color: '#cdd6f4' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+          y: { ticks: { color: '#cdd6f4' }, grid: { color: 'rgba(255,255,255,0.06)' } }
+        },
+        plugins: {
+          legend: { labels: { color: '#cdd6f4' } },
+          tooltip: { enabled: true }
+        },
+        elements: { line: { tension: 0.35 }, point: { radius: 3 } }
+      }
+    });
+
+    const zoneChart = new Chart(zoneCtx, {
+      type: 'doughnut',
+      data: { labels: [], datasets: [{ data: [], backgroundColor: colors.series }] },
+      options: { plugins: { legend: { labels: { color: '#cdd6f4' } } } }
+    });
+
+    const floorChart = new Chart(floorCtx, {
+      type: 'bar',
+      data: { labels: [], datasets: [] },
+      options: {
+        responsive: true,
+        scales: {
+          x: { stacked: true, ticks: { color: '#cdd6f4' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+          y: { stacked: true, ticks: { color: '#cdd6f4' }, grid: { color: 'rgba(255,255,255,0.06)' } }
+        },
+        plugins: { legend: { labels: { color: '#cdd6f4' } } }
+      }
+    });
+
+    const mcChart = new Chart(mcCtx, {
+      type: 'bar',
+      data: { labels: [], datasets: [
+        { label: '정상', data: [], backgroundColor: colors.normal, stack: 's' },
+        { label: '경고', data: [], backgroundColor: colors.warning, stack: 's' },
+        { label: '오류', data: [], backgroundColor: colors.error, stack: 's' }
+      ] },
+      options: {
+        responsive: true,
+        scales: {
+          x: { stacked: true, ticks: { color: '#cdd6f4' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+          y: { stacked: true, ticks: { color: '#cdd6f4' }, grid: { color: 'rgba(255,255,255,0.06)' } }
+        },
+        plugins: { legend: { labels: { color: '#cdd6f4' } } }
+      }
+    });
+
+    function unionSorted(arr) { return Array.from(new Set(arr)).sort(); }
+
+    async function loadCapacity() {
+      const res = await fetch('/api/view/capacity/hour').then(r => r.json()).catch(() => ({series:[]}));
+      const series = res.series || [];
+      const labels = unionSorted(series.flatMap(s => (s.points||[]).map(p => p.t)));
+      const ds = series.map((s, idx) => {
+        const map = new Map((s.points||[]).map(p => [p.t, Number(p.y||0)]));
+        const type = (s.type||'').toUpperCase();
+        const color = type==='PICK'?colors.pick:type==='SORT'?colors.sort:type==='PACK'?colors.pack:colors.series[idx%colors.series.length];
+        return { label: type || `S${idx+1}`, data: labels.map(l => map.get(l)||0), borderColor: color, backgroundColor: color, tension: 0.35 }; 
+      });
+      capChart.data.labels = labels; capChart.data.datasets = ds; capChart.update();
+    }
+
+    async function loadZone() {
+      const res = await fetch('/api/view/zone/rate').then(r => r.json()).catch(() => ({items:[]}));
+      const items = res.items||[];
+      zoneChart.data.labels = items.map(i => i.zone);
+      zoneChart.data.datasets[0].data = items.map(i => Number(i.rate ?? i.qty ?? 0));
+      zoneChart.update();
+    }
+
+    async function loadFloor() {
+      const res = await fetch('/api/view/floor/rate').then(r => r.json()).catch(() => ({items:[]}));
+      const items = res.items||[];
+      const zones = unionSorted(items.map(i => i.zone));
+      const floors = unionSorted(items.map(i => i.floor));
+      const datasets = floors.map((f, idx) => {
+        const color = colors.series[idx%colors.series.length];
+        const data = zones.map(z => Number((items.find(i => i.zone===z && i.floor===f)?.rate)||0));
+        return { label: f, data, backgroundColor: color, stack: 'rate' };
+      });
+      floorChart.data.labels = zones; floorChart.data.datasets = datasets; floorChart.update();
+    }
+
+    async function loadMc() {
+      const res = await fetch('/api/view/mc/status').then(r => r.json()).catch(() => ({items:[]}));
+      const items = res.items||[];
+      mcChart.data.labels = items.map(i => i.type);
+      mcChart.data.datasets[0].data = items.map(i => i.normal||0);
+      mcChart.data.datasets[1].data = items.map(i => i.warning||0);
+      mcChart.data.datasets[2].data = items.map(i => i.error||0);
+      mcChart.update();
+    }
+
+    async function loadBatch() {
+      const data = await fetch('/api/view/batch').then(r => r.json()).catch(() => ({items:[]}));
+      const list = document.getElementById('batch-list');
+      list.innerHTML = '';
+      (data.items||[]).forEach(b => {
+        const row = document.createElement('div'); row.className='batch-item';
+        const label = document.createElement('div'); label.textContent = b.id + ' [' + b.start + '~' + b.end + ']'; label.style.minWidth='240px';
+        const bar = document.createElement('div'); bar.className='progress';
+        const span = document.createElement('span'); span.style.width = Math.round((b.progress||0)*100)+'%';
+        if (b.status==='완료') span.style.background='linear-gradient(90deg,#10b981,#34d399)';
+        if (b.status==='대기') span.style.background='linear-gradient(90deg,#3b82f6,#60a5fa)';
+        bar.appendChild(span);
+        const st = document.createElement('div'); st.className='status'; st.textContent = b.status;
+        row.appendChild(label); row.appendChild(bar); row.appendChild(st); list.appendChild(row);
+      });
+    }
+
+    async function refreshAll() {
+      await Promise.all([loadCapacity(), loadZone(), loadFloor(), loadMc(), loadBatch()]);
+    }
+
+    refreshAll();
+    setInterval(refreshAll, 5000);
+  </script>
+</body>
+</html>
+
+
